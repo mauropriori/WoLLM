@@ -1,0 +1,58 @@
+## Build output
+bin/
+obj/
+publish/
+
+## Visual Studio
+.vs/
+*.suo
+*.user
+*.userosscache
+*.sln.docstates
+*.rsuser
+
+## VS Code
+.vscode/
+
+## JetBrains Rider
+.idea/
+*.sln.iml
+
+## NuGet
+packages/
+*.nupkg
+*.snupkg
+project.lock.json
+project.fragment.lock.json
+artifacts/
+
+## Logs & runtime
+logs/
+*.log
+*.tmp
+*.pid
+
+## OS
+.DS_Store
+Thumbs.db
+desktop.ini
+ehthumbs.db
+
+## Publish profiles (local overrides)
+**/Properties/PublishProfiles/
+
+## Test results
+TestResults/
+*.coverage
+*.coveragexml
+coverage*/
+
+## dotnet tool manifests (optional — keep if committing tool restore)
+# .config/dotnet-tools.json
+
+## Local secrets / environment overrides
+# appsettings.*.json is tracked by default.
+# Uncomment the line below if secrets are stored there:
+# appsettings.*.json
+# !appsettings.json
+# !appsettings.Development.json

@@ -1,0 +1,5 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/WoLLM/WoLLM.csproj" />
+  </Folder>
+</Solution>
