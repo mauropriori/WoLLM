@@ -1,5 +1,4 @@
 using System.Diagnostics;
-using System.Runtime.InteropServices;
 using WoLLM.Config;
 
 namespace WoLLM.Orchestration;
@@ -50,7 +49,7 @@ public sealed class ModelOrchestrator : IDisposable
 
             await KillCurrentAsync();
 
-            var scriptPath = RuntimeScript(target);
+            var scriptPath = target.ScriptPath;
             _currentProcess = ProcessLauncher.Launch(scriptPath, _logger);
             _currentModel   = target;
 
@@ -149,11 +148,6 @@ public sealed class ModelOrchestrator : IDisposable
         throw new TimeoutException(
             $"Model '{model.Name}' health check did not succeed within {_config.HealthCheckTimeoutSeconds}s.");
     }
-
-    private static string RuntimeScript(ModelConfig model) =>
-        RuntimeInformation.IsOSPlatform(OSPlatform.Windows)
-            ? model.Script.Win
-            : model.Script.Unix;
 
     public void Dispose()
     {

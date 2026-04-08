@@ -8,19 +8,13 @@
       "name": "mistral-7b",
       "type": "llama",
       "port": 8081,
-      "script": {
-        "win": "scripts/mistral-7b.bat",
-        "unix": "scripts/mistral-7b.sh"
-      }
+      "scriptPath": "scripts/mistral-7b.bat"
     },
     {
       "name": "sdxl",
       "type": "comfyui",
       "port": 8188,
-      "script": {
-        "win": "scripts/comfyui-sdxl.bat",
-        "unix": "scripts/comfyui-sdxl.sh"
-      }
+      "scriptPath": "scripts/comfyui-sdxl.bat"
     }
   ]
 }

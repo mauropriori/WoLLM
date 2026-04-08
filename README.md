@@ -65,19 +65,13 @@ Copy `wollm.example.json` to `wollm.json` in the same directory as the executabl
       "name": "mistral-7b",
       "type": "llama",
       "port": 8081,
-      "script": {
-        "win":  "scripts/mistral-7b.bat",
-        "unix": "scripts/mistral-7b.sh"
-      }
+      "scriptPath": "scripts/mistral-7b.bat"
     },
     {
       "name": "sdxl",
       "type": "comfyui",
       "port": 8188,
-      "script": {
-        "win":  "scripts/comfyui-sdxl.bat",
-        "unix": "scripts/comfyui-sdxl.sh"
-      }
+      "scriptPath": "scripts/comfyui-sdxl.bat"
     }
   ]
 }
@@ -92,8 +86,7 @@ Copy `wollm.example.json` to `wollm.json` in the same directory as the executabl
 | `models[].name` | — | Unique model identifier used in API calls |
 | `models[].type` | — | `llama` or `comfyui` |
 | `models[].port` | — | Port the model server will bind to |
-| `models[].script.win` | — | Path to the Windows `.bat` launch script |
-| `models[].script.unix` | — | Path to the Linux/macOS `.sh` launch script |
+| `models[].scriptPath` | — | Path to the launch script (`.bat` on Windows, `.sh` on Linux) |
 
 ---
 
@@ -219,7 +212,7 @@ curl -H "X-Api-Key: your-secret-key-here" -X POST http://localhost:8080/unload
 
 ```bash
 # Clone the repo
-git clone https://github.com/your-org/wollm.git
+git clone https://github.com/mauropriori/wollm.git
 cd wollm
 
 # Build (requires .NET 10 SDK)

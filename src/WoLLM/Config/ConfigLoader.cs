@@ -1,4 +1,3 @@
-using System.Runtime.InteropServices;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 
@@ -95,7 +94,7 @@ public static class ConfigLoader
             if (model.Port is < 1 or > 65535)
                 errors.Add($"Model '{model.Name}': port {model.Port} is out of range.");
 
-            var scriptPath = RuntimeScript(model);
+            var scriptPath = model.ScriptPath;
             var fullPath = Path.IsPathRooted(scriptPath)
                 ? scriptPath
                 : Path.Combine(AppContext.BaseDirectory, scriptPath);
@@ -106,11 +105,6 @@ public static class ConfigLoader
 
         return errors;
     }
-
-    private static string RuntimeScript(ModelConfig model) =>
-        RuntimeInformation.IsOSPlatform(OSPlatform.Windows)
-            ? model.Script.Win
-            : model.Script.Unix;
 
     private static void WriteExampleConfig(string path)
     {
@@ -124,17 +118,17 @@ public static class ConfigLoader
             {
                 new
                 {
-                    name   = "mistral-7b",
-                    type   = "llama",
-                    port   = 8081,
-                    script = new { win = "scripts/mistral-7b.bat", unix = "scripts/mistral-7b.sh" }
+                    name       = "mistral-7b",
+                    type       = "llama",
+                    port       = 8081,
+                    scriptPath = "scripts/mistral-7b.bat"
                 },
                 new
                 {
-                    name   = "sdxl",
-                    type   = "comfyui",
-                    port   = 8188,
-                    script = new { win = "scripts/comfyui-sdxl.bat", unix = "scripts/comfyui-sdxl.sh" }
+                    name       = "sdxl",
+                    type       = "comfyui",
+                    port       = 8188,
+                    scriptPath = "scripts/comfyui-sdxl.bat"
                 }
             }
         };

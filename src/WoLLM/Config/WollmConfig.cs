@@ -14,7 +14,7 @@ public sealed class ModelConfig
     public required string Name { get; init; }
     public required string Type { get; init; }  // "llama" | "comfyui"
     public required int Port { get; init; }
-    public required ModelScript Script { get; init; }
+    public required string ScriptPath { get; init; }
 
     /// <summary>Health-check path determined by model type.</summary>
     public string HealthPath => Type.ToLowerInvariant() switch
@@ -24,8 +24,3 @@ public sealed class ModelConfig
     };
 }
 
-public sealed class ModelScript
-{
-    public required string Win { get; init; }
-    public required string Unix { get; init; }
-}
