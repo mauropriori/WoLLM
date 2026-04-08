@@ -1,6 +1,7 @@
 using Serilog;
 using WoLLM.Config;
 using WoLLM.Orchestration;
+using WoLLM.System;
 
 // Bootstrap logger so config errors are printed cleanly before DI is ready.
 Log.Logger = new LoggerConfiguration()
@@ -110,14 +111,31 @@ app.MapPost("/unload", async (CancellationToken ct) =>
 });
 
 // GET /status — does NOT update idle timer
-app.MapGet("/status", () =>
-    Results.Ok(new
+app.MapGet("/status", async () =>
+{
+    var sysTask = SystemStats.GetAsync();
+    var wolTask = WolDetector.WasWolBootAsync();
+    await Task.WhenAll(sysTask, wolTask);
+
+    var sys = sysTask.Result;
+    return Results.Ok(new
     {
         currentModel       = orchestrator.CurrentModel?.Name,
         shutdownOnIdle     = watchdog.ShutdownOnIdle,
         idleTimeoutMinutes = config.IdleTimeoutMinutes,
-        idleSeconds        = (int)watchdog.IdleFor.TotalSeconds
-    }));
+        idleSeconds        = (int)watchdog.IdleFor.TotalSeconds,
+        wolBoot            = wolTask.Result,
+        system = new
+        {
+            cpuPercent  = sys.CpuPercent,
+            ramUsedMb   = sys.RamUsedMb,
+            ramTotalMb  = sys.RamTotalMb,
+            gpuPercent  = sys.GpuPercent,
+            vramUsedMb  = sys.VramUsedMb,
+            vramTotalMb = sys.VramTotalMb
+        }
+    });
+});
 
 // GET /models — does NOT update idle timer
 app.MapGet("/models", () =>
