@@ -110,6 +110,31 @@ app.MapPost("/unload", async (CancellationToken ct) =>
     return Results.Ok(new { status = "unloaded" });
 });
 
+// POST /shutdown?forceShutdown=true|false
+app.MapPost("/shutdown", async (bool? forceShutdown) =>
+{
+    bool? wolBoot       = await WolDetector.WasWolBootAsync();
+    bool  allowedByFlag = wolBoot == true || watchdog.ShutdownOnIdle;
+
+    if (!allowedByFlag && forceShutdown != true)
+    {
+        app.Logger.LogWarning(
+            "Shutdown rejected: wolBoot={WolBoot}, shutdownOnIdle={ShutdownOnIdle}, forceShutdown={ForceShutdown}.",
+            wolBoot, watchdog.ShutdownOnIdle, forceShutdown);
+        return Results.BadRequest(new
+        {
+            error = "Shutdown requires forceShutdown=true (system was not booted via WoL and shutdown_on_idle is not set)."
+        });
+    }
+
+    app.Logger.LogWarning(
+        "Shutdown accepted. wolBoot={WolBoot}, shutdownOnIdle={ShutdownOnIdle}, forceShutdown={ForceShutdown}.",
+        wolBoot, watchdog.ShutdownOnIdle, forceShutdown);
+
+    SystemShutdown.Shutdown(app.Logger);
+    return Results.Ok(new { message = "Shutdown initiated." });
+});
+
 // GET /status — does NOT update idle timer
 app.MapGet("/status", async () =>
 {
