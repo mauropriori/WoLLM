@@ -152,12 +152,10 @@ app.MapGet("/status", async () =>
         wolBoot            = wolTask.Result,
         system = new
         {
-            cpuPercent  = sys.CpuPercent,
-            ramUsedMb   = sys.RamUsedMb,
-            ramTotalMb  = sys.RamTotalMb,
-            gpuPercent  = sys.GpuPercent,
-            vramUsedMb  = sys.VramUsedMb,
-            vramTotalMb = sys.VramTotalMb
+            cpus       = sys.Cpus,
+            ramUsedMb  = sys.RamUsedMb,
+            ramTotalMb = sys.RamTotalMb,
+            gpus       = sys.Gpus
         }
     });
 });
