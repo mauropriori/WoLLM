@@ -1,5 +1,6 @@
 using Serilog;
 using WoLLM.Config;
+using WoLLM.Logging;
 using WoLLM.Orchestration;
 using WoLLM.System;
 
@@ -9,11 +10,13 @@ Log.Logger = new LoggerConfiguration()
     .CreateBootstrapLogger();
 
 var builder = WebApplication.CreateBuilder(args);
+builder.Services.AddSingleton<StartupLogStore>();
 
 builder.Host.UseSerilog((_, services, logConfig) =>
     logConfig
         .ReadFrom.Services(services)
         .WriteTo.Console()
+        .WriteTo.Sink(new StartupLogSink(services.GetRequiredService<StartupLogStore>()))
         .WriteTo.File("logs/wollm-.log",
             rollingInterval: RollingInterval.Day,
             retainedFileCountLimit: 7));
@@ -28,6 +31,7 @@ builder.Services.AddSingleton(config);
 builder.Services.AddSingleton<ModelOrchestrator>();
 builder.Services.AddSingleton<IdleWatchdog>();
 builder.Services.AddHostedService(sp => sp.GetRequiredService<IdleWatchdog>());
+builder.Services.AddHostedService<StartupModelLoader>();
 
 // Short timeout per health-check probe; failures are retried every second by the orchestrator.
 builder.Services.AddHttpClient("healthcheck", client =>
@@ -80,8 +84,8 @@ app.MapPost("/session/start", (bool? shutdown_on_idle) =>
     });
 });
 
-// POST /switch/{modelName}
-app.MapPost("/switch/{modelName}", async (string modelName, CancellationToken ct) =>
+// POST /load/{modelName}
+app.MapPost("/load/{modelName}", async (string modelName, CancellationToken ct) =>
 {
     watchdog.RecordActivity();
     try
@@ -169,6 +173,14 @@ app.MapGet("/models", () =>
             name = m.Name,
             type = m.Type
         })
+    }));
+
+// GET /logs â€” does NOT update idle timer
+app.MapGet("/logs", (StartupLogStore logStore) =>
+    Results.Ok(new
+    {
+        startup = "current",
+        entries = logStore.GetEntries()
     }));
 
 app.Run();

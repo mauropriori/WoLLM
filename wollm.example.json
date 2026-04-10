@@ -1,13 +1,14 @@
 {
   "port": 8080,
   "apiKey": "",
+  "loadModelOnStartup": "",
   "idleTimeoutMinutes": 5,
   "healthCheckTimeoutSeconds": 120,
   "models": [
     {
       "name": "mistral-7b",
       "type": "llama",
-      "port": 8081,
+      "port": 8080,
       "scriptPath": "scripts/mistral-7b.bat"
     },
     {

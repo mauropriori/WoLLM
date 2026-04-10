@@ -103,6 +103,12 @@ public static class ConfigLoader
                 errors.Add($"Model '{model.Name}': script not found at '{fullPath}'.");
         }
 
+        if (!string.IsNullOrWhiteSpace(config.LoadModelOnStartup) &&
+            !names.Contains(config.LoadModelOnStartup))
+        {
+            errors.Add($"loadModelOnStartup references unknown model: '{config.LoadModelOnStartup}'.");
+        }
+
         return errors;
     }
 
@@ -112,6 +118,7 @@ public static class ConfigLoader
         {
             port = 8080,
             apiKey = "",
+            loadModelOnStartup = "",
             idleTimeoutMinutes = 5,
             healthCheckTimeoutSeconds = 120,
             models = new[]

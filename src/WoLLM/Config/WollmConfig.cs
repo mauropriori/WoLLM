@@ -6,6 +6,7 @@ public sealed class WollmConfig
     public int IdleTimeoutMinutes { get; init; } = 5;
     public int HealthCheckTimeoutSeconds { get; init; } = 120;
     public string? ApiKey { get; init; }
+    public string? LoadModelOnStartup { get; init; }
     public List<ModelConfig> Models { get; init; } = [];
 }
 
@@ -23,4 +24,3 @@ public sealed class ModelConfig
         _         => "/health"
     };
 }
-
