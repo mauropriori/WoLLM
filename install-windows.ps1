@@ -23,6 +23,13 @@ param(
     [string]$TaskName  = "WoLLM_Autostart"
 )
 
+$currentIdentity = [Security.Principal.WindowsIdentity]::GetCurrent()
+$principal = New-Object Security.Principal.WindowsPrincipal($currentIdentity)
+if (-not $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
+    Write-Error "Administrator privileges are required. Re-run PowerShell as Administrator, then run .\\install-windows.ps1 again."
+    exit 1
+}
+
 if (-not (Test-Path $WollmExe)) {
     Write-Error "wollm.exe not found at: $WollmExe"
     exit 1
