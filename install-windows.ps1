@@ -1,7 +1,7 @@
 #Requires -Version 5.1
 <#
 .SYNOPSIS
-    Registers WoLLM to start at user login via Windows Task Scheduler.
+    Registers WoLLM to start at system boot via Windows Task Scheduler.
 
 .DESCRIPTION
     Does NOT install as a Windows Service — Task Scheduler with RunLevel Limited
@@ -28,26 +28,37 @@ if (-not (Test-Path $WollmExe)) {
     exit 1
 }
 
-$action = New-ScheduledTaskAction `
-    -Execute $WollmExe `
-    -WorkingDirectory $PSScriptRoot
+$resolvedExe = (Resolve-Path $WollmExe).Path
+$exeDir = Split-Path -Parent $resolvedExe
 
-$trigger = New-ScheduledTaskTrigger -AtLogOn -User $env:USERNAME
+$action = New-ScheduledTaskAction `
+    -Execute $resolvedExe `
+    -WorkingDirectory $exeDir
+
+$trigger = New-ScheduledTaskTrigger -AtStartup
+
+$principal = New-ScheduledTaskPrincipal `
+    -UserId "SYSTEM" `
+    -LogonType ServiceAccount `
+    -RunLevel Highest
 
 $settings = New-ScheduledTaskSettingsSet `
     -ExecutionTimeLimit (New-TimeSpan -Hours 0) `
     -RestartCount 3 `
     -RestartInterval (New-TimeSpan -Minutes 1) `
-    -StartWhenAvailable
+    -StartWhenAvailable `
+    -AllowStartIfOnBatteries `
+    -DontStopIfGoingOnBatteries
 
 Register-ScheduledTask `
     -TaskName  $TaskName `
     -Action    $action `
     -Trigger   $trigger `
     -Settings  $settings `
-    -RunLevel  Limited `
+    -Principal $principal `
+    -Description "Starts WoLLM automatically at system boot, without requiring user logon." `
     -Force | Out-Null
 
-Write-Host "Task '$TaskName' registered. WoLLM will start at next login."
+Write-Host "Task '$TaskName' registered. WoLLM will start at next boot without requiring user logon."
 Write-Host "To start now: Start-ScheduledTask -TaskName '$TaskName'"
 Write-Host "To remove:    Unregister-ScheduledTask -TaskName '$TaskName' -Confirm:`$false"

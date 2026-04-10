@@ -33,11 +33,13 @@ Built with **.NET 10** and **ASP.NET Core**, it runs as a background service (Wi
 ### Windows — Task Scheduler
 
 ```powershell
-# Run once as the user that owns the GPU/models
+# Run once as Administrator
 .\install-windows.ps1
 ```
 
-This registers a Task Scheduler entry that launches WoLLM at user logon (Limited run level, so GPU drivers and conda environments are available).
+This registers a machine-level Task Scheduler entry that launches WoLLM at system boot, even if no user logs in. The task runs as `LocalSystem`.
+
+Use local absolute paths for models and scripts on Windows. `LocalSystem` does not see user-mapped network drives or per-user profile state.
 
 ### Linux — systemd user service
 
