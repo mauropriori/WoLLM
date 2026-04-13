@@ -1,0 +1,95 @@
+name: Release Builds
+
+on:
+  release:
+    types:
+      - published
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-upload:
+    name: Build ${{ matrix.runtime }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            runtime: win-x64
+            archive_extension: zip
+          - os: ubuntu-latest
+            runtime: linux-x64
+            archive_extension: tar.gz
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Validate release tag and project version
+        id: version
+        shell: pwsh
+        run: |
+          $tagName = '${{ github.event.release.tag_name }}'
+          if ($tagName -notmatch '^v(\d+\.\d+\.\d+)$') {
+            throw "Release tag '$tagName' must use the format vX.Y.Z."
+          }
+
+          $tagVersion = $Matches[1]
+          [xml]$props = Get-Content Directory.Build.props
+          $projectVersion = $props.Project.PropertyGroup.Version
+
+          if (-not $projectVersion) {
+            throw "Directory.Build.props does not declare a Version property."
+          }
+
+          if ($projectVersion -ne $tagVersion) {
+            throw "Release tag version '$tagVersion' does not match project version '$projectVersion'."
+          }
+
+          "version=$projectVersion" >> $env:GITHUB_OUTPUT
+
+      - name: Restore
+        run: dotnet restore wollm.slnx
+
+      - name: Build
+        run: dotnet build wollm.slnx -c Release --no-restore /p:ContinuousIntegrationBuild=true
+
+      - name: Publish
+        run: dotnet publish src/WoLLM/WoLLM.csproj -c Release -r ${{ matrix.runtime }} --self-contained true --no-build -o publish/${{ matrix.runtime }} /p:ContinuousIntegrationBuild=true
+
+      - name: Package Windows archive
+        if: matrix.runtime == 'win-x64'
+        shell: pwsh
+        run: |
+          $version = '${{ steps.version.outputs.version }}'
+          $archive = "wollm-$version-${{ matrix.runtime }}.zip"
+          Compress-Archive -Path "publish/${{ matrix.runtime }}/*" -DestinationPath $archive -Force
+          "asset_path=$archive" >> $env:GITHUB_OUTPUT
+        id: package_windows
+
+      - name: Package Linux archive
+        if: matrix.runtime == 'linux-x64'
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="${{ steps.version.outputs.version }}"
+          archive="wollm-${version}-${{ matrix.runtime }}.tar.gz"
+          tar -C "publish/${{ matrix.runtime }}" -czf "$archive" .
+          echo "asset_path=$archive" >> "$GITHUB_OUTPUT"
+        id: package_linux
+
+      - name: Upload asset to release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ASSET_PATH: ${{ steps.package_windows.outputs.asset_path || steps.package_linux.outputs.asset_path }}
+        run: |
+          set -euo pipefail
+          gh release upload "${{ github.event.release.tag_name }}" "$ASSET_PATH" --clobber

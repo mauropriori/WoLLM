@@ -1,4 +1,5 @@
 using Serilog;
+using System.Reflection;
 using WoLLM.Config;
 using WoLLM.Logging;
 using WoLLM.Orchestration;
@@ -42,6 +43,12 @@ builder.WebHost.ConfigureKestrel(options => options.ListenAnyIP(config.Port));
 
 var app = builder.Build();
 app.UseSerilogRequestLogging();
+var informationalVersion = Assembly.GetExecutingAssembly()
+    .GetCustomAttribute<AssemblyInformationalVersionAttribute>()?
+    .InformationalVersion
+    ?? Assembly.GetExecutingAssembly().GetName().Version?.ToString()
+    ?? "unknown";
+app.Logger.LogInformation("Starting WoLLM v{Version}.", informationalVersion);
 
 // API key guard — only active when apiKey is configured (non-empty = protected mode).
 if (!string.IsNullOrWhiteSpace(config.ApiKey))

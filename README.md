@@ -30,10 +30,17 @@ Built with **.NET 10** and **ASP.NET Core**, it runs as a background service (Wi
 
 ## Installation
 
+Download the archive for your platform from the latest [GitHub Release](https://github.com/mauropriori/WoLLM/releases), extract it to the target directory, then run the install script from that extracted folder.
+
+Suggested asset names:
+
+- `wollm-<version>-win-x64.zip`
+- `wollm-<version>-linux-x64.tar.gz`
+
 ### Windows — Task Scheduler
 
 ```powershell
-# Run once as Administrator
+# Extract the release archive, open an elevated PowerShell in that folder, then:
 .\install-windows.ps1
 ```
 
@@ -44,6 +51,7 @@ Use local absolute paths for models and scripts on Windows. `LocalSystem` does n
 ### Linux — systemd user service
 
 ```bash
+# Extract the release archive, open a shell in that folder, then:
 chmod +x install-linux.sh
 ./install-linux.sh
 ```
@@ -302,6 +310,8 @@ curl -H "X-Api-Key: your-secret-key-here" -X POST "http://localhost:8080/shutdow
 
 ## Build from Source
 
+Prebuilt release assets are the recommended installation path for end users. Build from source only if you want to modify WoLLM or produce custom binaries.
+
 ```bash
 # Clone the repo
 git clone https://github.com/mauropriori/wollm.git
@@ -316,6 +326,17 @@ dotnet publish src/WoLLM/WoLLM.csproj -c Release -r linux-x64 -o dist/linux-x64
 ```
 
 The output is a single self-contained binary (`wollm.exe` / `wollm`) with no external .NET dependency.
+
+## Releases and Versioning
+
+- Application version metadata is defined in `Directory.Build.props`.
+- GitHub Releases must use tags in the format `vX.Y.Z` (for example `v0.2.0`).
+- The release workflow runs when a GitHub Release is published.
+- The workflow validates that the tag version matches the project `Version`.
+- If the versions differ, the workflow fails and no release assets are uploaded.
+- Successful releases upload:
+  - `wollm-<version>-win-x64.zip`
+  - `wollm-<version>-linux-x64.tar.gz`
 
 ---
 
