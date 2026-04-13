@@ -5,6 +5,14 @@ namespace WoLLM.Orchestration;
 
 public sealed class ModelOrchestrator : IDisposable
 {
+    public enum LoadState
+    {
+        None,
+        Loading,
+        Loaded,
+        Failed
+    }
+
     private readonly WollmConfig _config;
     private readonly ILogger<ModelOrchestrator> _logger;
     private readonly IHttpClientFactory _httpClientFactory;
@@ -12,9 +20,11 @@ public sealed class ModelOrchestrator : IDisposable
 
     private Process? _currentProcess;
     private ModelConfig? _currentModel;
+    private LoadState _lastLoadState = LoadState.None;
 
     /// <summary>Currently loaded model. May be read without the lock (atomic reference read on 64-bit CLR).</summary>
     public ModelConfig? CurrentModel => _currentModel;
+    public LoadState LastLoadStatus => _lastLoadState;
 
     public ModelOrchestrator(
         WollmConfig config,
@@ -39,6 +49,7 @@ public sealed class ModelOrchestrator : IDisposable
         {
             if (_currentModel?.Name.Equals(modelName, StringComparison.OrdinalIgnoreCase) == true)
             {
+                _lastLoadState = LoadState.Loaded;
                 _logger.LogInformation("Model '{Model}' is already loaded.", modelName);
                 return;
             }
@@ -47,14 +58,21 @@ public sealed class ModelOrchestrator : IDisposable
                 m => m.Name.Equals(modelName, StringComparison.OrdinalIgnoreCase))
                 ?? throw new InvalidOperationException($"Unknown model: '{modelName}'.");
 
+            _lastLoadState = LoadState.Loading;
             await KillCurrentAsync();
 
             var scriptPath = target.ScriptPath;
             _currentProcess = ProcessLauncher.Launch(scriptPath, _logger);
-            _currentModel   = target;
 
             await WaitForHealthAsync(target, ct);
+            _currentModel = target;
+            _lastLoadState = LoadState.Loaded;
             _logger.LogInformation("Model '{Model}' is ready.", modelName);
+        }
+        catch
+        {
+            _lastLoadState = LoadState.Failed;
+            throw;
         }
         finally
         {

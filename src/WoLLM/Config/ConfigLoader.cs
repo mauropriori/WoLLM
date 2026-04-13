@@ -120,6 +120,8 @@ public static class ConfigLoader
             apiKey = "",
             loadModelOnStartup = "",
             idleTimeoutMinutes = 5,
+            shutdownOnIdle = false,
+            unloadOnIdle = true,
             healthCheckTimeoutSeconds = 120,
             models = new[]
             {

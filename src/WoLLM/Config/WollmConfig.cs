@@ -4,6 +4,8 @@ public sealed class WollmConfig
 {
     public int Port { get; init; } = 8080;
     public int IdleTimeoutMinutes { get; init; } = 5;
+    public bool ShutdownOnIdle { get; init; }
+    public bool UnloadOnIdle { get; init; } = true;
     public int HealthCheckTimeoutSeconds { get; init; } = 120;
     public string? ApiKey { get; init; }
     public string? LoadModelOnStartup { get; init; }

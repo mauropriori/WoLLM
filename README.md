@@ -62,6 +62,8 @@ Copy `wollm.example.json` to `wollm.json` in the same directory as the executabl
   "apiKey": "",
   "loadModelOnStartup": "",
   "idleTimeoutMinutes": 5,
+  "shutdownOnIdle": false,
+  "unloadOnIdle": true,
   "healthCheckTimeoutSeconds": 120,
   "models": [
     {
@@ -85,7 +87,9 @@ Copy `wollm.example.json` to `wollm.json` in the same directory as the executabl
 | `port` | `8080` | Port WoLLM listens on |
 | `apiKey` | `""` | API key required on every request (empty = public access) |
 | `loadModelOnStartup` | `""` | Optional model name to load automatically when WoLLM starts |
-| `idleTimeoutMinutes` | `5` | Minutes of inactivity before auto-unload |
+| `idleTimeoutMinutes` | `5` | Minutes of inactivity before idle actions are triggered |
+| `shutdownOnIdle` | `false` | If `true`, WoLLM shuts down the machine when the idle timeout expires |
+| `unloadOnIdle` | `true` | If `true`, WoLLM unloads the active model when the idle timeout expires |
 | `healthCheckTimeoutSeconds` | `120` | Max seconds to wait for a model to become healthy |
 | `models[].name` | — | Unique model identifier used in API calls |
 | `models[].type` | — | `llama` or `comfyui` |
@@ -153,14 +157,26 @@ Base URL: `http://localhost:8080` (or whatever `port` is configured)
 
 | Method | Endpoint | Description | Resets idle timer |
 |---|---|---|---|
-| `GET` | `/health` | Service health + active model name | No |
-| `GET` | `/status` | Full status: active model, idle timer, WoL boot state, and system stats | No |
+| `GET` | `/health` | Service health + verified model load state | No |
+| `GET` | `/status` | Full status: verified model load state, idle timer, WoL boot state, and system stats | No |
 | `GET` | `/models` | List all configured models | No |
 | `GET` | `/logs` | In-memory log entries captured during the current WoLLM startup | No |
-| `POST` | `/session/start?shutdown_on_idle=true\|false` | Start a session, enable/disable auto-shutdown | Yes |
+| `POST` | `/set?idleTimeoutMinutes=5&shutdown_on_idle=true\|false&unload_on_idle=true\|false` | Override idle settings for the current WoLLM runtime | Yes |
 | `POST` | `/load/{modelName}` | Load a model (unloads the previous one first) | Yes |
 | `POST` | `/unload` | Unload the currently active model | Yes |
 | `POST` | `/shutdown?forceShutdown=true\|false` | Shut down the machine. Allowed automatically after WoL boot or when `shutdown_on_idle=true`; otherwise requires `forceShutdown=true` | No |
+
+### `GET /health` response
+
+Returns service availability plus the most recent model load result:
+
+```json
+{
+  "status": "ok",
+  "currentModel": "mistral-7b",
+  "loadStatus": "loaded"
+}
+```
 
 ### `GET /status` response
 
@@ -169,7 +185,9 @@ Returns the current orchestration state plus basic machine telemetry:
 ```json
 {
   "currentModel": "mistral-7b",
+  "loadStatus": "loaded",
   "shutdownOnIdle": true,
+  "unloadOnIdle": true,
   "idleTimeoutMinutes": 5,
   "idleSeconds": 42,
   "wolBoot": true,
@@ -182,10 +200,18 @@ Returns the current orchestration state plus basic machine telemetry:
 }
 ```
 
+`currentModel` is set only after the target model passes its health check. If a load attempt fails, `currentModel` becomes `null` and `loadStatus` becomes `failed`.
+
+Possible `loadStatus` values:
+- `none`: no load has been attempted since WoLLM started
+- `loading`: a load is currently in progress
+- `loaded`: the last load completed successfully and the model is available
+- `failed`: the last load attempt did not complete successfully
+
 ### `POST /shutdown` behavior
 
 - If the machine was booted via Wake-on-LAN, shutdown is allowed.
-- If the current session was started with `shutdown_on_idle=true`, shutdown is allowed.
+- If `shutdown_on_idle=true` is currently active, shutdown is allowed.
 - Otherwise the request is rejected unless `forceShutdown=true` is provided.
 
 Rejected shutdown requests return `400 Bad Request` with:
@@ -221,7 +247,7 @@ Without API key (public server):
 curl http://localhost:8080/status
 curl http://localhost:8080/logs
 curl -X POST http://localhost:8080/load/mistral-7b
-curl -X POST "http://localhost:8080/session/start?shutdown_on_idle=true"
+curl -X POST "http://localhost:8080/set?idleTimeoutMinutes=10&shutdown_on_idle=true&unload_on_idle=true"
 curl -X POST http://localhost:8080/unload
 curl -X POST http://localhost:8080/shutdown
 curl -X POST "http://localhost:8080/shutdown?forceShutdown=true"
@@ -232,7 +258,7 @@ With API key (protected server):
 curl -H "X-Api-Key: your-secret-key-here" http://localhost:8080/status
 curl -H "X-Api-Key: your-secret-key-here" http://localhost:8080/logs
 curl -H "X-Api-Key: your-secret-key-here" -X POST http://localhost:8080/load/mistral-7b
-curl -H "X-Api-Key: your-secret-key-here" -X POST "http://localhost:8080/session/start?shutdown_on_idle=true"
+curl -H "X-Api-Key: your-secret-key-here" -X POST "http://localhost:8080/set?idleTimeoutMinutes=10&shutdown_on_idle=true&unload_on_idle=true"
 curl -H "X-Api-Key: your-secret-key-here" -X POST http://localhost:8080/unload
 curl -H "X-Api-Key: your-secret-key-here" -X POST http://localhost:8080/shutdown
 curl -H "X-Api-Key: your-secret-key-here" -X POST "http://localhost:8080/shutdown?forceShutdown=true"

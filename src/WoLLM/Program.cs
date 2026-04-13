@@ -69,18 +69,29 @@ app.MapGet("/health", () =>
     Results.Ok(new
     {
         status       = "ok",
-        currentModel = orchestrator.CurrentModel?.Name
+        currentModel = orchestrator.CurrentModel?.Name,
+        loadStatus   = orchestrator.LastLoadStatus.ToString().ToLowerInvariant()
     }));
 
-// POST /session/start?shutdown_on_idle=true|false
-app.MapPost("/session/start", (bool? shutdown_on_idle) =>
+// POST /set?idleTimeoutMinutes=5&shutdown_on_idle=true|false&unload_on_idle=true|false
+app.MapPost("/set", (int? idleTimeoutMinutes, bool? shutdown_on_idle, bool? unload_on_idle) =>
 {
-    watchdog.SetShutdownOnIdle(shutdown_on_idle ?? false);
+    if (idleTimeoutMinutes is < 1)
+    {
+        return Results.BadRequest(new
+        {
+            error = "idleTimeoutMinutes must be >= 1."
+        });
+    }
+
+    watchdog.UpdateSettings(idleTimeoutMinutes, shutdown_on_idle, unload_on_idle);
     watchdog.RecordActivity();
     return Results.Ok(new
     {
-        status         = "ok",
-        shutdownOnIdle = watchdog.ShutdownOnIdle
+        status             = "ok",
+        idleTimeoutMinutes = watchdog.IdleTimeoutMinutes,
+        shutdownOnIdle     = watchdog.ShutdownOnIdle,
+        unloadOnIdle       = watchdog.UnloadOnIdle
     });
 });
 
@@ -150,8 +161,10 @@ app.MapGet("/status", async () =>
     return Results.Ok(new
     {
         currentModel       = orchestrator.CurrentModel?.Name,
+        loadStatus         = orchestrator.LastLoadStatus.ToString().ToLowerInvariant(),
         shutdownOnIdle     = watchdog.ShutdownOnIdle,
-        idleTimeoutMinutes = config.IdleTimeoutMinutes,
+        unloadOnIdle       = watchdog.UnloadOnIdle,
+        idleTimeoutMinutes = watchdog.IdleTimeoutMinutes,
         idleSeconds        = (int)watchdog.IdleFor.TotalSeconds,
         wolBoot            = wolTask.Result,
         system = new
