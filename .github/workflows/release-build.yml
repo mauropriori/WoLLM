@@ -12,6 +12,8 @@ jobs:
   build-and-upload:
     name: Build ${{ matrix.runtime }}
     runs-on: ${{ matrix.os }}
+    env:
+      WINDOWS_TIMESTAMP_URL: http://timestamp.digicert.com
     strategy:
       fail-fast: false
       matrix:
@@ -64,32 +66,90 @@ jobs:
       - name: Publish
         run: dotnet publish src/WoLLM/WoLLM.csproj -c Release -r ${{ matrix.runtime }} --self-contained true --no-build -o publish/${{ matrix.runtime }} /p:ContinuousIntegrationBuild=true
 
+      - name: Prepare Windows signing certificate
+        if: matrix.runtime == 'win-x64' && secrets.WOLLM_WINDOWS_SIGNING_CERT_BASE64 != '' && secrets.WOLLM_WINDOWS_SIGNING_CERT_PASSWORD != ''
+        id: signing_cert
+        shell: pwsh
+        run: |
+          $certPath = Join-Path $env:RUNNER_TEMP 'wollm-signing-cert.pfx'
+          [IO.File]::WriteAllBytes($certPath, [Convert]::FromBase64String('${{ secrets.WOLLM_WINDOWS_SIGNING_CERT_BASE64 }}'))
+          "cert_path=$certPath" >> $env:GITHUB_OUTPUT
+
+      - name: Sign Windows executable
+        if: matrix.runtime == 'win-x64' && steps.signing_cert.outputs.cert_path != ''
+        shell: pwsh
+        env:
+          SIGNING_CERT_PASSWORD: ${{ secrets.WOLLM_WINDOWS_SIGNING_CERT_PASSWORD }}
+          SIGNING_CERT_THUMBPRINT: ${{ secrets.WOLLM_WINDOWS_SIGNING_CERT_THUMBPRINT }}
+          SIGNING_CERT_SUBJECT: ${{ secrets.WOLLM_WINDOWS_SIGNING_CERT_SUBJECT }}
+        run: |
+          $signtool = Get-ChildItem 'C:\Program Files (x86)\Windows Kits\10\bin' -Recurse -Filter signtool.exe |
+            Sort-Object FullName -Descending |
+            Select-Object -First 1 -ExpandProperty FullName
+
+          if (-not $signtool) {
+            throw 'signtool.exe not found on the runner.'
+          }
+
+          $target = "publish/${{ matrix.runtime }}/wollm.exe"
+          $arguments = @(
+            'sign',
+            '/fd', 'SHA256',
+            '/tr', $env:WINDOWS_TIMESTAMP_URL,
+            '/td', 'SHA256',
+            '/f', '${{ steps.signing_cert.outputs.cert_path }}',
+            '/p', $env:SIGNING_CERT_PASSWORD
+          )
+
+          if ($env:SIGNING_CERT_THUMBPRINT) {
+            $arguments += @('/sha1', $env:SIGNING_CERT_THUMBPRINT)
+          }
+
+          if ($env:SIGNING_CERT_SUBJECT) {
+            $arguments += @('/n', $env:SIGNING_CERT_SUBJECT)
+          }
+
+          $arguments += $target
+          & $signtool @arguments
+          if ($LASTEXITCODE -ne 0) {
+            throw "signtool failed with exit code $LASTEXITCODE."
+          }
+
       - name: Package Windows archive
         if: matrix.runtime == 'win-x64'
         shell: pwsh
+        id: package_windows
         run: |
           $version = '${{ steps.version.outputs.version }}'
           $archive = "wollm-$version-${{ matrix.runtime }}.zip"
           Compress-Archive -Path "publish/${{ matrix.runtime }}/*" -DestinationPath $archive -Force
+          $hash = (Get-FileHash -Path $archive -Algorithm SHA256).Hash.ToLowerInvariant()
+          $checksumFile = "$archive.sha256"
+          "$hash  $archive" | Set-Content -Path $checksumFile -NoNewline
           "asset_path=$archive" >> $env:GITHUB_OUTPUT
-        id: package_windows
+          "checksum_path=$checksumFile" >> $env:GITHUB_OUTPUT
 
       - name: Package Linux archive
         if: matrix.runtime == 'linux-x64'
         shell: bash
+        id: package_linux
         run: |
           set -euo pipefail
           version="${{ steps.version.outputs.version }}"
           archive="wollm-${version}-${{ matrix.runtime }}.tar.gz"
           tar -C "publish/${{ matrix.runtime }}" -czf "$archive" .
+          checksum_file="$archive.sha256"
+          sha256sum "$archive" > "$checksum_file"
           echo "asset_path=$archive" >> "$GITHUB_OUTPUT"
-        id: package_linux
+          echo "checksum_path=$checksum_file" >> "$GITHUB_OUTPUT"
 
-      - name: Upload asset to release
+      - name: Upload assets to release
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
           ASSET_PATH: ${{ steps.package_windows.outputs.asset_path || steps.package_linux.outputs.asset_path }}
+          CHECKSUM_PATH: ${{ steps.package_windows.outputs.checksum_path || steps.package_linux.outputs.checksum_path }}
         run: |
           set -euo pipefail
           gh release upload "${{ github.event.release.tag_name }}" "$ASSET_PATH" --clobber
+          gh release upload "${{ github.event.release.tag_name }}" "$CHECKSUM_PATH" --clobber

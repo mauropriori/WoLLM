@@ -36,21 +36,50 @@ Suggested asset names:
 
 - `wollm-<version>-win-x64.zip`
 - `wollm-<version>-linux-x64.tar.gz`
+- `wollm-<version>-win-x64.zip.sha256`
+- `wollm-<version>-linux-x64.tar.gz.sha256`
+
+Download only from the official GitHub Releases page for this repository. Avoid repackaged mirrors or third-party archives so you can verify the published checksums and keep a single trusted distribution channel.
 
 ### Windows — Task Scheduler
 
 ```powershell
-# Extract the release archive, open an elevated PowerShell in that folder, then:
-.\install-windows.ps1
+# Optional but recommended: verify the checksum first
+$expected = (Get-Content .\wollm-<version>-win-x64.zip.sha256).Split()[0].ToLowerInvariant()
+$actual = (Get-FileHash .\wollm-<version>-win-x64.zip -Algorithm SHA256).Hash.ToLowerInvariant()
+$actual -eq $expected
+
+# Extract the release archive, open an elevated PowerShell in the extracted folder, then:
+.\install-windows-release.ps1
 ```
 
-This registers a machine-level Task Scheduler entry that launches WoLLM at system boot, even if no user logs in. The task runs as `LocalSystem`.
+`install-windows-release.ps1` copies the release files into `C:\Program Files\WoLLM`, tries to remove the Internet download mark from the extracted files, and registers a machine-level Task Scheduler entry that launches WoLLM at system boot. The task runs as `LocalSystem`.
 
 Use local absolute paths for models and scripts on Windows. `LocalSystem` does not see user-mapped network drives or per-user profile state.
+
+### Windows SmartScreen
+
+Because `wollm.exe` is not yet Authenticode-signed, Microsoft Defender SmartScreen may show `Editore sconosciuto` the first time you run it on some machines. This is expected for unsigned binaries and does not by itself indicate malware.
+
+To proceed safely:
+
+1. Download only from the official GitHub Release page.
+2. Verify the SHA256 checksum published next to the archive.
+3. Extract the archive and run `install-windows-release.ps1` from an elevated PowerShell session.
+4. If SmartScreen appears, use `Altre info` and then `Esegui comunque` only after confirming you are using the official release asset.
+
+Code signing support is already prepared in the release workflow and can be enabled later by adding these GitHub secrets:
+
+- `WOLLM_WINDOWS_SIGNING_CERT_BASE64`
+- `WOLLM_WINDOWS_SIGNING_CERT_PASSWORD`
+- `WOLLM_WINDOWS_SIGNING_CERT_THUMBPRINT` or `WOLLM_WINDOWS_SIGNING_CERT_SUBJECT`
 
 ### Linux — systemd user service
 
 ```bash
+# Optional but recommended: verify the checksum first
+sha256sum -c wollm-<version>-linux-x64.tar.gz.sha256
+
 # Extract the release archive, open a shell in that folder, then:
 chmod +x install-linux.sh
 ./install-linux.sh
@@ -330,13 +359,16 @@ The output is a single self-contained binary (`wollm.exe` / `wollm`) with no ext
 ## Releases and Versioning
 
 - Application version metadata is defined in `Directory.Build.props`.
-- GitHub Releases must use tags in the format `vX.Y.Z` (for example `v0.2.0`).
+- GitHub Releases must use tags in the format `vX.Y.Z` (for example `v0.2.1`).
 - The release workflow runs when a GitHub Release is published.
 - The workflow validates that the tag version matches the project `Version`.
 - If the versions differ, the workflow fails and no release assets are uploaded.
+- Windows signing is optional and activates automatically when the signing secrets are configured in GitHub Actions.
 - Successful releases upload:
   - `wollm-<version>-win-x64.zip`
+  - `wollm-<version>-win-x64.zip.sha256`
   - `wollm-<version>-linux-x64.tar.gz`
+  - `wollm-<version>-linux-x64.tar.gz.sha256`
 
 ---
 

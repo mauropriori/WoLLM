@@ -23,6 +23,11 @@
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
       <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
     </Content>
+    <Content Include="..\..\install-windows-release.ps1">
+      <Link>install-windows-release.ps1</Link>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+    </Content>
     <Content Include="..\..\wollm.example.json">
       <Link>wollm.example.json</Link>
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
