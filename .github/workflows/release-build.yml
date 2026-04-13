@@ -14,6 +14,10 @@ jobs:
     runs-on: ${{ matrix.os }}
     env:
       WINDOWS_TIMESTAMP_URL: http://timestamp.digicert.com
+      WINDOWS_SIGNING_CERT_BASE64: ${{ secrets.WOLLM_WINDOWS_SIGNING_CERT_BASE64 }}
+      WINDOWS_SIGNING_CERT_PASSWORD: ${{ secrets.WOLLM_WINDOWS_SIGNING_CERT_PASSWORD }}
+      WINDOWS_SIGNING_CERT_THUMBPRINT: ${{ secrets.WOLLM_WINDOWS_SIGNING_CERT_THUMBPRINT }}
+      WINDOWS_SIGNING_CERT_SUBJECT: ${{ secrets.WOLLM_WINDOWS_SIGNING_CERT_SUBJECT }}
     strategy:
       fail-fast: false
       matrix:
@@ -67,21 +71,21 @@ jobs:
         run: dotnet publish src/WoLLM/WoLLM.csproj -c Release -r ${{ matrix.runtime }} --self-contained true --no-build -o publish/${{ matrix.runtime }} /p:ContinuousIntegrationBuild=true
 
       - name: Prepare Windows signing certificate
-        if: matrix.runtime == 'win-x64' && secrets.WOLLM_WINDOWS_SIGNING_CERT_BASE64 != '' && secrets.WOLLM_WINDOWS_SIGNING_CERT_PASSWORD != ''
+        if: matrix.runtime == 'win-x64' && env.WINDOWS_SIGNING_CERT_BASE64 != '' && env.WINDOWS_SIGNING_CERT_PASSWORD != ''
         id: signing_cert
         shell: pwsh
         run: |
           $certPath = Join-Path $env:RUNNER_TEMP 'wollm-signing-cert.pfx'
-          [IO.File]::WriteAllBytes($certPath, [Convert]::FromBase64String('${{ secrets.WOLLM_WINDOWS_SIGNING_CERT_BASE64 }}'))
+          [IO.File]::WriteAllBytes($certPath, [Convert]::FromBase64String($env:WINDOWS_SIGNING_CERT_BASE64))
           "cert_path=$certPath" >> $env:GITHUB_OUTPUT
 
       - name: Sign Windows executable
         if: matrix.runtime == 'win-x64' && steps.signing_cert.outputs.cert_path != ''
         shell: pwsh
         env:
-          SIGNING_CERT_PASSWORD: ${{ secrets.WOLLM_WINDOWS_SIGNING_CERT_PASSWORD }}
-          SIGNING_CERT_THUMBPRINT: ${{ secrets.WOLLM_WINDOWS_SIGNING_CERT_THUMBPRINT }}
-          SIGNING_CERT_SUBJECT: ${{ secrets.WOLLM_WINDOWS_SIGNING_CERT_SUBJECT }}
+          SIGNING_CERT_PASSWORD: ${{ env.WINDOWS_SIGNING_CERT_PASSWORD }}
+          SIGNING_CERT_THUMBPRINT: ${{ env.WINDOWS_SIGNING_CERT_THUMBPRINT }}
+          SIGNING_CERT_SUBJECT: ${{ env.WINDOWS_SIGNING_CERT_SUBJECT }}
         run: |
           $signtool = Get-ChildItem 'C:\Program Files (x86)\Windows Kits\10\bin' -Recurse -Filter signtool.exe |
             Sort-Object FullName -Descending |
