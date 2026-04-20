@@ -64,7 +64,7 @@ public sealed class IdleWatchdog : BackgroundService
         {
             await Task.Delay(TimeSpan.FromSeconds(60), stoppingToken);
 
-            if (_orchestrator.CurrentModel is null)
+            if (!_orchestrator.HasManagedModel)
                 continue;
 
             var idle      = IdleFor;
@@ -76,7 +76,7 @@ public sealed class IdleWatchdog : BackgroundService
             if (!UnloadOnIdle && !ShutdownOnIdle)
                 continue;
 
-            var modelName = _orchestrator.CurrentModel.Name;
+            var modelName = _orchestrator.DesiredModelName;
 
             if (UnloadOnIdle)
             {

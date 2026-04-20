@@ -30,13 +30,19 @@ var config = ConfigLoader.Load(bootstrapLoggerFactory.CreateLogger(nameof(Config
 // Register services.
 builder.Services.AddSingleton(config);
 builder.Services.AddSingleton<ModelOrchestrator>();
+builder.Services.AddSingleton<ModelSupervisor>();
+builder.Services.AddSingleton<BackendActivityMonitor>();
 builder.Services.AddSingleton<IdleWatchdog>();
+builder.Services.AddHostedService(sp => sp.GetRequiredService<ModelSupervisor>());
+builder.Services.AddHostedService(sp => sp.GetRequiredService<BackendActivityMonitor>());
 builder.Services.AddHostedService(sp => sp.GetRequiredService<IdleWatchdog>());
 builder.Services.AddHostedService<StartupModelLoader>();
 
 // Short timeout per health-check probe; failures are retried every second by the orchestrator.
 builder.Services.AddHttpClient("healthcheck", client =>
     client.Timeout = TimeSpan.FromSeconds(5));
+builder.Services.AddHttpClient("backend-activity", client =>
+    client.Timeout = TimeSpan.FromSeconds(3));
 
 // Bind to configured port on all interfaces.
 builder.WebHost.ConfigureKestrel(options => options.ListenAnyIP(config.Port));
@@ -67,18 +73,23 @@ if (!string.IsNullOrWhiteSpace(config.ApiKey))
 
 // Resolve singletons eagerly to surface DI issues at startup.
 var orchestrator = app.Services.GetRequiredService<ModelOrchestrator>();
+var activityMonitor = app.Services.GetRequiredService<BackendActivityMonitor>();
 var watchdog     = app.Services.GetRequiredService<IdleWatchdog>();
 
 // ── Endpoints ────────────────────────────────────────────────────────────────
 
 // GET /health — intentionally does NOT update idle timer (keepalives must not prevent shutdown).
-app.MapGet("/health", () =>
-    Results.Ok(new
+app.MapGet("/health", async (CancellationToken ct) =>
+{
+    var runtime = await orchestrator.GetStatusAsync(ct);
+    return Results.Ok(new
     {
         status       = "ok",
-        currentModel = orchestrator.CurrentModel?.Name,
-        loadStatus   = orchestrator.LastLoadStatus.ToString().ToLowerInvariant()
-    }));
+        currentModel = runtime.CurrentModel,
+        desiredModel = runtime.DesiredModel,
+        loadStatus   = runtime.LoadStatus
+    });
+});
 
 // POST /set?idleTimeoutMinutes=5&shutdown_on_idle=true|false&unload_on_idle=true|false
 app.MapPost("/set", (int? idleTimeoutMinutes, bool? shutdown_on_idle, bool? unload_on_idle) =>
@@ -160,6 +171,8 @@ app.MapPost("/shutdown", async (bool? forceShutdown) =>
 // GET /status — does NOT update idle timer
 app.MapGet("/status", async () =>
 {
+    var runtime = await orchestrator.GetStatusAsync();
+    var activity = activityMonitor.GetStatusSnapshot();
     var sysTask = SystemStats.GetAsync();
     var wolTask = WolDetector.WasWolBootAsync();
     await Task.WhenAll(sysTask, wolTask);
@@ -167,13 +180,16 @@ app.MapGet("/status", async () =>
     var sys = sysTask.Result;
     return Results.Ok(new
     {
-        currentModel       = orchestrator.CurrentModel?.Name,
-        loadStatus         = orchestrator.LastLoadStatus.ToString().ToLowerInvariant(),
+        currentModel       = runtime.CurrentModel,
+        desiredModel       = runtime.DesiredModel,
+        loadStatus         = runtime.LoadStatus,
         shutdownOnIdle     = watchdog.ShutdownOnIdle,
         unloadOnIdle       = watchdog.UnloadOnIdle,
         idleTimeoutMinutes = watchdog.IdleTimeoutMinutes,
         idleSeconds        = (int)watchdog.IdleFor.TotalSeconds,
         wolBoot            = wolTask.Result,
+        supervisor         = runtime.Supervisor,
+        activityMonitor    = activity,
         system = new
         {
             cpus       = sys.Cpus,

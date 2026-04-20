@@ -1,6 +1,6 @@
 # WoLLM
 
-**WoLLM** is a lightweight AI model orchestrator for Windows and Linux. It manages the lifecycle of local LLMs and image generation models via a simple REST API — loading models on demand, unloading them when idle, and optionally shutting down the system after a period of inactivity.
+**WoLLM** is a lightweight AI model orchestrator for Windows and Linux. It manages the lifecycle of local LLMs and image generation models via a simple REST API Ã¢â‚¬â€ loading models on demand, unloading them when idle, and optionally shutting down the system after a period of inactivity.
 
 Built with **.NET 10** and **ASP.NET Core**, it runs as a background service (Windows Task Scheduler / Linux systemd) and acts as a transparent proxy coordinator between your client applications and the underlying model servers.
 
@@ -8,20 +8,21 @@ Built with **.NET 10** and **ASP.NET Core**, it runs as a background service (Wi
 
 ## Features
 
-- **On-demand model switching** — load any configured model with a single HTTP call; the previous model is automatically killed first
-- **Idle watchdog** — automatically unloads the active model after a configurable period of inactivity
-- **Auto system shutdown** — optionally shuts down the machine after the idle timeout (useful for unattended inference rigs)
-- **Health-check polling** — waits for the model server to become healthy before reporting success, with a configurable timeout
-- **Optional API key auth** — protect the API with a shared secret; leave empty for open/local access
-- **Cross-platform** — full support for Windows (Task Scheduler, `.bat` scripts) and Linux (systemd, `.sh` scripts)
-- **GPU/CUDA friendly** — launches scripts via shell so conda environments, CUDA drivers, and venvs are inherited correctly
-- **Zero dependencies at runtime** — single self-contained executable, no .NET installation required on the target machine
+- **On-demand model switching** Ã¢â‚¬â€ load any configured model with a single HTTP call; the previous model is automatically killed first
+- **Idle watchdog** Ã¢â‚¬â€ automatically unloads the active model after a configurable period of inactivity
+- **Auto system shutdown** Ã¢â‚¬â€ optionally shuts down the machine after the idle timeout (useful for unattended inference rigs)
+- **Health-check polling** Ã¢â‚¬â€ waits for the model server to become healthy before reporting success, with a configurable timeout
+- **Process supervision** Ã¢â‚¬â€ detects unexpected model exits, keeps the desired model under supervision, and restarts it automatically with restart telemetry exposed by the API
+- **Optional API key auth** Ã¢â‚¬â€ protect the API with a shared secret; leave empty for open/local access
+- **Cross-platform** Ã¢â‚¬â€ full support for Windows (Task Scheduler, `.bat` scripts) and Linux (systemd, `.sh` scripts)
+- **GPU/CUDA friendly** Ã¢â‚¬â€ launches scripts via shell so conda environments, CUDA drivers, and venvs are inherited correctly
+- **Zero dependencies at runtime** Ã¢â‚¬â€ single self-contained executable, no .NET installation required on the target machine
 
 ---
 
 ## Requirements
 
-- [.NET 10 SDK](https://dotnet.microsoft.com/download) *(build only — the published binary is self-contained)*
+- [.NET 10 SDK](https://dotnet.microsoft.com/download) *(build only Ã¢â‚¬â€ the published binary is self-contained)*
 - A supported model backend, e.g.:
   - [llama-server](https://github.com/ggerganov/llama.cpp) for GGUF LLMs
   - [ComfyUI](https://github.com/comfyanonymous/ComfyUI) for image generation
@@ -41,7 +42,7 @@ Suggested asset names:
 
 Download only from the official GitHub Releases page for this repository. Avoid repackaged mirrors or third-party archives so you can verify the published checksums and keep a single trusted distribution channel.
 
-### Windows — Task Scheduler
+### Windows Ã¢â‚¬â€ Task Scheduler
 
 ```powershell
 # Optional but recommended: verify the checksum first
@@ -74,7 +75,7 @@ Code signing support is already prepared in the release workflow and can be enab
 - `WOLLM_WINDOWS_SIGNING_CERT_PASSWORD`
 - `WOLLM_WINDOWS_SIGNING_CERT_THUMBPRINT` or `WOLLM_WINDOWS_SIGNING_CERT_SUBJECT`
 
-### Linux — systemd user service
+### Linux Ã¢â‚¬â€ systemd user service
 
 ```bash
 # Optional but recommended: verify the checksum first
@@ -107,13 +108,19 @@ Copy `wollm.example.json` to `wollm.json` in the same directory as the executabl
       "name": "mistral-7b",
       "type": "llama",
       "port": 8081,
-      "scriptPath": "scripts/mistral-7b.bat"
+      "scriptPath": "scripts/mistral-7b.bat",
+      "activityDetectionMode": "llama_slots",
+      "activityPollSeconds": 5,
+      "activityGraceSeconds": 30
     },
     {
       "name": "sdxl",
       "type": "comfyui",
       "port": 8188,
-      "scriptPath": "scripts/comfyui-sdxl.bat"
+      "scriptPath": "scripts/comfyui-sdxl.bat",
+      "activityDetectionMode": "comfy_queue",
+      "activityPollSeconds": 5,
+      "activityGraceSeconds": 120
     }
   ]
 }
@@ -128,14 +135,20 @@ Copy `wollm.example.json` to `wollm.json` in the same directory as the executabl
 | `shutdownOnIdle` | `false` | If `true`, WoLLM shuts down the machine when the idle timeout expires |
 | `unloadOnIdle` | `true` | If `true`, WoLLM unloads the active model when the idle timeout expires |
 | `healthCheckTimeoutSeconds` | `120` | Max seconds to wait for a model to become healthy |
-| `models[].name` | — | Unique model identifier used in API calls |
-| `models[].type` | — | `llama` or `comfyui` |
-| `models[].port` | — | Port the model server will bind to |
-| `models[].scriptPath` | — | Path to the launch script (`.bat` on Windows, `.sh` on Linux) |
+| `models[].name` | Ã¢â‚¬â€ | Unique model identifier used in API calls |
+| `models[].type` | Ã¢â‚¬â€ | `llama` or `comfyui` |
+| `models[].port` | Ã¢â‚¬â€ | Port the model server will bind to |
+| `models[].scriptPath` | Ã¢â‚¬â€ | Path to the launch script (`.bat` on Windows, `.sh` on Linux) |
 
 ---
 
-## Security — API Key
+## Security Ã¢â‚¬â€ API Key
+
+Additional per-model activity detection settings:
+
+- `activityDetectionMode`: `llama_slots`, `comfy_queue`, or `none`; controls how WoLLM infers real backend usage
+- `activityPollSeconds`: poll interval in seconds for backend activity detection
+- `activityGraceSeconds`: conservative grace window applied after detected backend activity
 
 If `loadModelOnStartup` is set, it must match one of the configured `models[].name` values. WoLLM will try to load that model automatically during startup.
 
@@ -153,7 +166,7 @@ Every request must then include the key in the `X-Api-Key` header. Requests with
 { "error": "Unauthorized: invalid or missing API key." }
 ```
 
-**Generating a key** — use any online generator, for example:
+**Generating a key** Ã¢â‚¬â€ use any online generator, for example:
 - https://www.uuidgenerator.net/
 - https://generate-random.org/api-key-generator
 
@@ -165,7 +178,7 @@ Copy the generated value into `wollm.json` on the server, and pass the same valu
 
 Each model needs a launch script that starts its server on the configured port. See [`scripts/examples/`](scripts/examples/) for templates.
 
-**Windows — LLM (llama-server)**
+**Windows Ã¢â‚¬â€ LLM (llama-server)**
 ```bat
 @echo off
 set MODEL_PATH=C:\Models\mistral-7b-instruct-v0.2.Q4_K_M.gguf
@@ -174,7 +187,7 @@ set LLAMA_SERVER=C:\llama.cpp\llama-server.exe
 "%LLAMA_SERVER%" --model "%MODEL_PATH%" --port 8081 --host 127.0.0.1 --n-gpu-layers 99 --ctx-size 4096
 ```
 
-**Windows — Image generation (ComfyUI)**
+**Windows Ã¢â‚¬â€ Image generation (ComfyUI)**
 ```bat
 @echo off
 set COMFYUI_PATH=C:\ComfyUI
@@ -195,7 +208,7 @@ Base URL: `http://localhost:8080` (or whatever `port` is configured)
 | Method | Endpoint | Description | Resets idle timer |
 |---|---|---|---|
 | `GET` | `/health` | Service health + verified model load state | No |
-| `GET` | `/status` | Full status: verified model load state, idle timer, WoL boot state, and system stats | No |
+| `GET` | `/status` | Full status: verified model load state, supervisor/activity monitor state, idle timer, WoL boot state, and system stats | No |
 | `GET` | `/models` | List all configured models | No |
 | `GET` | `/logs` | In-memory log entries captured during the current WoLLM startup | No |
 | `POST` | `/set?idleTimeoutMinutes=5&shutdown_on_idle=true\|false&unload_on_idle=true\|false` | Override idle settings for the current WoLLM runtime | Yes |
@@ -205,12 +218,13 @@ Base URL: `http://localhost:8080` (or whatever `port` is configured)
 
 ### `GET /health` response
 
-Returns service availability plus the most recent model load result:
+Returns a lightweight service health snapshot plus the most recent model load result:
 
 ```json
 {
   "status": "ok",
   "currentModel": "mistral-7b",
+  "desiredModel": "mistral-7b",
   "loadStatus": "loaded"
 }
 ```
@@ -222,12 +236,38 @@ Returns the current orchestration state plus basic machine telemetry:
 ```json
 {
   "currentModel": "mistral-7b",
+  "desiredModel": "mistral-7b",
   "loadStatus": "loaded",
   "shutdownOnIdle": true,
   "unloadOnIdle": true,
   "idleTimeoutMinutes": 5,
   "idleSeconds": 42,
   "wolBoot": true,
+  "supervisor": {
+    "state": "running",
+    "desiredModel": "mistral-7b",
+    "processId": 12345,
+    "processStartedAtUtc": "2026-04-20T12:30:03Z",
+    "restartCount": 1,
+    "consecutiveRestartFailures": 0,
+    "lastUnexpectedExitAtUtc": "2026-04-20T12:30:00Z",
+    "lastExitCode": 137,
+    "lastRestartAttemptAtUtc": "2026-04-20T12:30:03Z",
+    "lastRestartSucceededAtUtc": "2026-04-20T12:30:18Z",
+    "lastRestartFailureAtUtc": null,
+    "lastRestartFailure": null,
+    "nextRestartAttemptAtUtc": null
+  },
+  "activityMonitor": {
+    "mode": "llama_slots",
+    "state": "active",
+    "lastActivityAtUtc": "2026-04-20T12:30:45Z",
+    "lastCheckAtUtc": "2026-04-20T12:30:47Z",
+    "lastSuccessfulCheckAtUtc": "2026-04-20T12:30:47Z",
+    "lastError": null,
+    "consecutiveErrors": 0,
+    "activityEvidence": "llama slot 0 processing"
+  },
   "system": {
     "cpus": [],
     "ramUsedMb": 4096,
@@ -237,13 +277,29 @@ Returns the current orchestration state plus basic machine telemetry:
 }
 ```
 
-`currentModel` is set only after the target model passes its health check. If a load attempt fails, `currentModel` becomes `null` and `loadStatus` becomes `failed`.
+`/health` intentionally stays lightweight. Detailed supervisor and backend activity information is exposed only by `/status`.
+
+`currentModel` is set only after the target model passes its health check. If the managed process crashes later, `currentModel` becomes `null` as soon as WoLLM observes the exit, while `desiredModel` stays set so the supervisor can restart it automatically.
 
 Possible `loadStatus` values:
 - `none`: no load has been attempted since WoLLM started
 - `loading`: a load is currently in progress
 - `loaded`: the last load completed successfully and the model is available
 - `failed`: the last load attempt did not complete successfully
+
+`supervisor.state` values:
+- `idle`: no model is currently supervised
+- `starting`: a manual `/load` is in progress
+- `running`: the desired model is healthy and supervised
+- `restarting`: WoLLM is attempting an automatic restart after an unexpected exit
+- `failed`: the supervised model is currently down; WoLLM will retry with backoff and expose the last failure metadata in `supervisor.*`
+
+`activityMonitor.state` values:
+- `idle`: no backend is currently monitored
+- `monitoring`: WoLLM is polling the backend but has not seen recent activity
+- `active`: WoLLM has observed backend work or is inside the configured grace window
+- `degraded`: activity polling is failing; WoLLM keeps retrying and reports the last error
+- `unsupported`: the configured activity endpoint is not available on the backend
 
 ### `POST /shutdown` behavior
 
@@ -305,38 +361,49 @@ curl -H "X-Api-Key: your-secret-key-here" -X POST "http://localhost:8080/shutdow
 
 ## Architecture
 
-```
-┌─────────────────────────────────────────────┐
-│                  WoLLM                      │
-│                                             │
-│  ┌──────────────┐   ┌──────────────────┐   │
-│  │  HTTP API    │   │  IdleWatchdog    │   │
-│  │  (Kestrel)   │──▶│  (background)    │   │
-│  └──────┬───────┘   └────────┬─────────┘   │
-│         │                    │             │
-│         ▼                    ▼             │
-│  ┌──────────────────────────────────────┐  │
-│  │         ModelOrchestrator            │  │
-│  │  (SwitchAsync / UnloadAsync)         │  │
-│  └──────────────────┬───────────────────┘  │
-│                     │                      │
-│         ┌───────────▼──────────┐           │
-│         │   ProcessLauncher    │           │
-│         │ (Windows / Linux)    │           │
-│         └──────────────────────┘           │
-└─────────────────────────────────────────────┘
-         │                   │
-         ▼                   ▼
-  llama-server           ComfyUI
-  :8081                  :8188
+```text
++--------------------------------------------------------+
+|                         WoLLM                          |
+|                                                        |
+|  +------------+      +----------------------+          |
+|  |  HTTP API  |----->|     IdleWatchdog     |          |
+|  | (Kestrel)  |      |     (background)     |          |
+|  +-----+------+      +----------+-----------+          |
+|        |                        ^                      |
+|        v                        | reset idle           |
+|  +-----------------------------------------------+     |
+|  |               ModelOrchestrator               |     |
+|  |   desired model + healthy process state       |     |
+|  +-------------+------------------+--------------+     |
+|                |                  |                    |
+|      supervises|                  |launches            |
+|                v                  v                    |
+|      +----------------+   +----------------------+     |
+|      | ModelSupervisor|   |   ProcessLauncher    |     |
+|      | (background)   |   |  (Windows / Linux)   |     |
+|      +----------------+   +----------------------+     |
+|                ^                                       |
+|                | health / exit checks                  |
+|                |                                       |
+|      +------------------------------------------+      |
+|      |       BackendActivityMonitor             |      |
+|      |   polls /slots, /queue, /history         |----->|
+|      |   infers real backend usage              |      |
+|      +------------------------------------------+      |
++--------------------------------------------------------+
+          |                                   |
+          v                                   v
+     llama-server                         ComfyUI
+     :8081                                :8188
 ```
 
-- **ModelOrchestrator** — thread-safe model lifecycle manager; polls the model's health endpoint until it's ready
+- **ModelOrchestrator** — thread-safe lifecycle state holder; tracks desired model, healthy model, and managed process state
+- **ModelSupervisor** — background service that detects unexpected exits and restarts the supervised backend with backoff
+- **BackendActivityMonitor** — background service that polls backend runtime endpoints such as `/slots`, `/queue`, and `/history` to infer real usage and extend the idle timer conservatively
 - **IdleWatchdog** — background service that tracks the last activity timestamp and triggers unload (and optionally system shutdown) after the configured timeout
 - **ProcessLauncher** — cross-platform process spawner; preserves shell environment for GPU/CUDA/venv access
 
 ---
-
 ## Build from Source
 
 Prebuilt release assets are the recommended installation path for end users. Build from source only if you want to modify WoLLM or produce custom binaries.
@@ -369,6 +436,31 @@ The output is a single self-contained binary (`wollm.exe` / `wollm`) with no ext
   - `wollm-<version>-win-x64.zip.sha256`
   - `wollm-<version>-linux-x64.tar.gz`
   - `wollm-<version>-linux-x64.tar.gz.sha256`
+
+---
+
+## Backend Activity Detection
+
+WoLLM can infer real backend usage and extend the idle timer without acting as an HTTP proxy.
+
+- `activityDetectionMode`: `llama_slots`, `comfy_queue`, or `none`
+- `activityPollSeconds`: poll interval in seconds for backend activity detection
+- `activityGraceSeconds`: conservative grace window after detected backend activity
+
+For `llama-server`, WoLLM polls `/slots` and keeps the model alive while slots are processing or task counters are advancing.
+
+For `ComfyUI`, WoLLM polls `/queue` and, when available, `/history` to detect queued or recently completed work. The logic is conservative and prefers preventing premature unload/shutdown over aggressively expiring the idle timer.
+
+`GET /status` now includes an `activityMonitor` object with:
+
+- `mode`
+- `state`
+- `lastActivityAtUtc`
+- `lastCheckAtUtc`
+- `lastSuccessfulCheckAtUtc`
+- `lastError`
+- `consecutiveErrors`
+- `activityEvidence`
 
 ---
 

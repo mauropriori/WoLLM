@@ -91,8 +91,23 @@ public static class ConfigLoader
             if (!names.Add(model.Name))
                 errors.Add($"Duplicate model name: '{model.Name}'.");
 
+            if (model.Type is not ("llama" or "comfyui"))
+                errors.Add($"Model '{model.Name}': type must be 'llama' or 'comfyui'.");
+
             if (model.Port is < 1 or > 65535)
                 errors.Add($"Model '{model.Name}': port {model.Port} is out of range.");
+
+            if (ModelConfig.NormalizeActivityDetectionMode(model.ActivityDetectionMode) == "__invalid__")
+            {
+                errors.Add(
+                    $"Model '{model.Name}': activityDetectionMode must be one of 'none', 'llama_slots', or 'comfy_queue'.");
+            }
+
+            if (model.ActivityPollSeconds is <= 0)
+                errors.Add($"Model '{model.Name}': activityPollSeconds must be >= 1 when set.");
+
+            if (model.ActivityGraceSeconds is <= 0)
+                errors.Add($"Model '{model.Name}': activityGraceSeconds must be >= 1 when set.");
 
             var scriptPath = model.ScriptPath;
             var fullPath = Path.IsPathRooted(scriptPath)
@@ -130,14 +145,20 @@ public static class ConfigLoader
                     name       = "mistral-7b",
                     type       = "llama",
                     port       = 8081,
-                    scriptPath = "scripts/mistral-7b.bat"
+                    scriptPath = "scripts/mistral-7b.bat",
+                    activityDetectionMode = "llama_slots",
+                    activityPollSeconds = 5,
+                    activityGraceSeconds = 30
                 },
                 new
                 {
                     name       = "sdxl",
                     type       = "comfyui",
                     port       = 8188,
-                    scriptPath = "scripts/comfyui-sdxl.bat"
+                    scriptPath = "scripts/comfyui-sdxl.bat",
+                    activityDetectionMode = "comfy_queue",
+                    activityPollSeconds = 5,
+                    activityGraceSeconds = 120
                 }
             }
         };

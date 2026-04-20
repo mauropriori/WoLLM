@@ -18,11 +18,45 @@ public sealed class ModelConfig
     public required string Type { get; init; }  // "llama" | "comfyui"
     public required int Port { get; init; }
     public required string ScriptPath { get; init; }
+    public string? ActivityDetectionMode { get; init; }
+    public int? ActivityPollSeconds { get; init; }
+    public int? ActivityGraceSeconds { get; init; }
 
     /// <summary>Health-check path determined by model type.</summary>
     public string HealthPath => Type.ToLowerInvariant() switch
     {
         "comfyui" => "/system_stats",
         _         => "/health"
+    };
+
+    public string EffectiveActivityDetectionMode => NormalizeActivityDetectionMode(ActivityDetectionMode) switch
+    {
+        "none" => "none",
+        "llama_slots" => "llama_slots",
+        "comfy_queue" => "comfy_queue",
+        _ => Type.ToLowerInvariant() switch
+        {
+            "llama" => "llama_slots",
+            "comfyui" => "comfy_queue",
+            _ => "none"
+        }
+    };
+
+    public int EffectiveActivityPollSeconds => ActivityPollSeconds ?? 5;
+
+    public int EffectiveActivityGraceSeconds => ActivityGraceSeconds
+        ?? Type.ToLowerInvariant() switch
+        {
+            "comfyui" => 120,
+            _ => 30
+        };
+
+    public static string? NormalizeActivityDetectionMode(string? mode) => mode?.Trim().ToLowerInvariant() switch
+    {
+        null or "" => null,
+        "none" => "none",
+        "llama_slots" => "llama_slots",
+        "comfy_queue" => "comfy_queue",
+        _ => "__invalid__"
     };
 }

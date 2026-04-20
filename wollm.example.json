@@ -10,14 +10,20 @@
     {
       "name": "mistral-7b",
       "type": "llama",
-      "port": 8080,
-      "scriptPath": "scripts/mistral-7b.bat"
+      "port": 8081,
+      "scriptPath": "scripts/mistral-7b.bat",
+      "activityDetectionMode": "llama_slots",
+      "activityPollSeconds": 5,
+      "activityGraceSeconds": 30
     },
     {
       "name": "sdxl",
       "type": "comfyui",
       "port": 8188,
-      "scriptPath": "scripts/comfyui-sdxl.bat"
+      "scriptPath": "scripts/comfyui-sdxl.bat",
+      "activityDetectionMode": "comfy_queue",
+      "activityPollSeconds": 5,
+      "activityGraceSeconds": 120
     }
   ]
 }
