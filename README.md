@@ -197,7 +197,7 @@ cd /d "%COMFYUI_PATH%"
 "%PYTHON%" main.py --port 8188 --listen 127.0.0.1
 ```
 
-The scripts are executed via the system shell, so environment variables, conda/venv activation, and GPU driver state are fully inherited.
+The scripts are executed via the system shell, so environment variables, conda/venv activation, and GPU driver state are fully inherited. WoLLM also captures each launched model process `stdout` and `stderr` into dedicated files under `logs/processes/<model-name>/` without requiring changes to the script commands themselves.
 
 ---
 
@@ -466,7 +466,9 @@ For `ComfyUI`, WoLLM polls `/queue` and, when available, `/history` to detect qu
 
 ## Logs
 
-Logs are written to `logs/wollm-<date>.log` with daily rotation and 7-day retention, using [Serilog](https://serilog.net/). Console output is also enabled.
+Application logs are written to `logs/wollm-<date>.log` with daily rotation and 7-day retention, using [Serilog](https://serilog.net/). Console output is also enabled.
+
+For each model launch, WoLLM also captures child-process output into dedicated files under `logs/processes/<model-name>/`, with separate `stdout` and `stderr` files per launch. File names include a UTC timestamp and PID so restart attempts and crashes can be correlated without modifying the underlying `.bat` or `.sh` scripts.
 
 ---
 

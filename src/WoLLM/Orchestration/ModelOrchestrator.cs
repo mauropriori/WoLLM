@@ -1,4 +1,3 @@
-using System.Diagnostics;
 using WoLLM.Config;
 
 namespace WoLLM.Orchestration;
@@ -27,7 +26,7 @@ public sealed class ModelOrchestrator : IDisposable
     private readonly IHttpClientFactory _httpClientFactory;
     private readonly SemaphoreSlim _lock = new(1, 1);
 
-    private Process? _currentProcess;
+    private ManagedProcessLaunch? _currentLaunch;
     private ModelConfig? _currentModel;
     private ModelConfig? _desiredModel;
     private LoadState _lastLoadState = LoadState.None;
@@ -39,6 +38,8 @@ public sealed class ModelOrchestrator : IDisposable
     private DateTimeOffset? _lastRestartFailureAtUtc;
     private string? _lastRestartFailure;
     private int? _lastExitCode;
+    private string? _lastStdoutLogPath;
+    private string? _lastStderrLogPath;
     private int _restartCount;
     private int _consecutiveRestartFailures;
     private bool _isStoppingCurrentProcess;
@@ -71,15 +72,15 @@ public sealed class ModelOrchestrator : IDisposable
         await _lock.WaitAsync(ct);
         try
         {
-            ObserveExitedProcessLocked();
+            await ObserveExitedProcessLockedAsync();
 
             var target = _config.Models.Find(
                 m => m.Name.Equals(modelName, StringComparison.OrdinalIgnoreCase))
                 ?? throw new InvalidOperationException($"Unknown model: '{modelName}'.");
 
             if (string.Equals(_desiredModel?.Name, target.Name, StringComparison.OrdinalIgnoreCase) &&
-                _currentProcess is not null &&
-                !_currentProcess.HasExited &&
+                _currentLaunch?.Process is not null &&
+                !_currentLaunch.Process.HasExited &&
                 string.Equals(_currentModel?.Name, target.Name, StringComparison.OrdinalIgnoreCase))
             {
                 _lastLoadState = LoadState.Loaded;
@@ -127,7 +128,7 @@ public sealed class ModelOrchestrator : IDisposable
         }
     }
 
-    /// <summary>Called by IdleWatchdog — acquires lock internally.</summary>
+    /// <summary>Called by IdleWatchdog - acquires lock internally.</summary>
     internal async Task UnloadForWatchdogAsync()
     {
         await _lock.WaitAsync();
@@ -149,13 +150,13 @@ public sealed class ModelOrchestrator : IDisposable
         await _lock.WaitAsync(ct);
         try
         {
-            ObserveExitedProcessLocked();
+            await ObserveExitedProcessLockedAsync();
 
             if (_desiredModel is null)
                 return;
 
-            if (_currentProcess is not null &&
-                !_currentProcess.HasExited &&
+            if (_currentLaunch?.Process is not null &&
+                !_currentLaunch.Process.HasExited &&
                 string.Equals(_currentModel?.Name, _desiredModel.Name, StringComparison.OrdinalIgnoreCase))
             {
                 _supervisorState = SupervisorState.Running;
@@ -195,9 +196,10 @@ public sealed class ModelOrchestrator : IDisposable
 
                 _logger.LogError(
                     ex,
-                    "Supervisor restart failed for model '{Model}'. Consecutive failures: {Failures}.",
+                    "Supervisor restart failed for model '{Model}'. Consecutive failures: {Failures}. Latest stderr log: '{StderrLog}'.",
                     model.Name,
-                    _consecutiveRestartFailures);
+                    _consecutiveRestartFailures,
+                    _lastStderrLogPath);
             }
         }
         finally
@@ -211,7 +213,7 @@ public sealed class ModelOrchestrator : IDisposable
         await _lock.WaitAsync(ct);
         try
         {
-            ObserveExitedProcessLocked();
+            await ObserveExitedProcessLockedAsync();
             return CreateStatusSnapshotLocked();
         }
         finally
@@ -222,8 +224,10 @@ public sealed class ModelOrchestrator : IDisposable
 
     private async Task StartModelLockedAsync(ModelConfig model, bool isRestart, CancellationToken ct)
     {
-        _currentProcess = ProcessLauncher.Launch(model.ScriptPath, _logger);
+        _currentLaunch = ProcessLauncher.Launch(model, _logger);
         _currentProcessStartedAtUtc = DateTimeOffset.UtcNow;
+        _lastStdoutLogPath = _currentLaunch.LogPaths.StdoutPath;
+        _lastStderrLogPath = _currentLaunch.LogPaths.StderrPath;
 
         try
         {
@@ -263,49 +267,54 @@ public sealed class ModelOrchestrator : IDisposable
 
     private async Task StopCurrentProcessLockedAsync()
     {
-        if (_currentProcess is null)
+        if (_currentLaunch is null)
             return;
 
+        var process = _currentLaunch.Process;
         _isStoppingCurrentProcess = true;
         try
         {
-            if (!_currentProcess.HasExited)
+            if (!process.HasExited)
             {
                 _logger.LogInformation(
-                    "Killing PID {Pid} (model '{Model}').",
-                    _currentProcess.Id,
-                    _currentModel?.Name ?? _desiredModel?.Name);
+                    "Killing PID {Pid} (model '{Model}'). stdout: '{StdoutLog}', stderr: '{StderrLog}'.",
+                    process.Id,
+                    _currentModel?.Name ?? _desiredModel?.Name,
+                    _lastStdoutLogPath,
+                    _lastStderrLogPath);
 
-                _currentProcess.Kill(entireProcessTree: true);
-                await _currentProcess.WaitForExitAsync();
+                process.Kill(entireProcessTree: true);
+                await process.WaitForExitAsync();
             }
         }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, "Error while killing PID {Pid}.", _currentProcess.Id);
+            _logger.LogWarning(ex, "Error while killing PID {Pid}.", process.Id);
         }
         finally
         {
             _isStoppingCurrentProcess = false;
-            DisposeCurrentProcessLocked();
+            await DisposeCurrentLaunchLockedAsync();
         }
     }
 
-    private void ObserveExitedProcessLocked()
+    private async Task ObserveExitedProcessLockedAsync()
     {
-        if (_currentProcess is null || !_currentProcess.HasExited)
+        if (_currentLaunch is null || !_currentLaunch.Process.HasExited)
             return;
 
+        var currentLaunch = _currentLaunch;
+        var process = currentLaunch.Process;
         var modelName = _currentModel?.Name ?? _desiredModel?.Name;
         int? exitCode = null;
 
         try
         {
-            exitCode = _currentProcess.ExitCode;
+            exitCode = process.ExitCode;
         }
         catch (Exception ex)
         {
-            _logger.LogDebug(ex, "Unable to read exit code for PID {Pid}.", _currentProcess.Id);
+            _logger.LogDebug(ex, "Unable to read exit code for PID {Pid}.", process.Id);
         }
 
         if (!_isStoppingCurrentProcess && _desiredModel is not null)
@@ -316,21 +325,42 @@ public sealed class ModelOrchestrator : IDisposable
             _supervisorState = SupervisorState.Failed;
 
             _logger.LogWarning(
-                "Managed process for model '{Model}' exited unexpectedly. PID {Pid}, exit code {ExitCode}.",
+                "Managed process for model '{Model}' exited unexpectedly. PID {Pid}, exit code {ExitCode}, stdout: '{StdoutLog}', stderr: '{StderrLog}'.",
                 modelName,
-                _currentProcess.Id,
-                exitCode);
+                process.Id,
+                exitCode,
+                currentLaunch.LogPaths.StdoutPath,
+                currentLaunch.LogPaths.StderrPath);
         }
 
-        DisposeCurrentProcessLocked();
+        await DisposeCurrentLaunchLockedAsync();
         _currentModel = null;
     }
 
-    private void DisposeCurrentProcessLocked()
+    private async Task DisposeCurrentLaunchLockedAsync()
     {
-        _currentProcess?.Dispose();
-        _currentProcess = null;
+        var currentLaunch = _currentLaunch;
+        _currentLaunch = null;
         _currentProcessStartedAtUtc = null;
+
+        if (currentLaunch is null)
+            return;
+
+        try
+        {
+            await currentLaunch.WaitForLogDrainAsync();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(
+                ex,
+                "Error while finalizing process log capture for PID {Pid}.",
+                currentLaunch.Process.Id);
+        }
+        finally
+        {
+            currentLaunch.Dispose();
+        }
     }
 
     private async Task WaitForHealthAsync(ModelConfig model, CancellationToken ct)
@@ -347,12 +377,12 @@ public sealed class ModelOrchestrator : IDisposable
         while (DateTime.UtcNow < deadline)
         {
             ct.ThrowIfCancellationRequested();
-            ObserveExitedProcessLocked();
+            await ObserveExitedProcessLockedAsync();
 
-            if (_currentProcess is null)
+            if (_currentLaunch is null)
             {
                 throw new InvalidOperationException(
-                    $"Model '{model.Name}' terminated before becoming healthy.");
+                    $"Model '{model.Name}' terminated before becoming healthy. See stderr log at '{_lastStderrLogPath}'.");
             }
 
             try
@@ -370,7 +400,7 @@ public sealed class ModelOrchestrator : IDisposable
         }
 
         throw new TimeoutException(
-            $"Model '{model.Name}' health check did not succeed within {_config.HealthCheckTimeoutSeconds}s.");
+            $"Model '{model.Name}' health check did not succeed within {_config.HealthCheckTimeoutSeconds}s. Latest stderr log: '{_lastStderrLogPath}'.");
     }
 
     private ModelRuntimeStatusSnapshot CreateStatusSnapshotLocked()
@@ -382,7 +412,7 @@ public sealed class ModelOrchestrator : IDisposable
             Supervisor: new SupervisorStatusSnapshot(
                 State: _supervisorState.ToString().ToLowerInvariant(),
                 DesiredModel: _desiredModel?.Name,
-                ProcessId: _currentProcess is not null && !_currentProcess.HasExited ? _currentProcess.Id : null,
+                ProcessId: _currentLaunch?.Process is not null && !_currentLaunch.Process.HasExited ? _currentLaunch.Process.Id : null,
                 ProcessStartedAtUtc: _currentProcessStartedAtUtc,
                 RestartCount: _restartCount,
                 ConsecutiveRestartFailures: _consecutiveRestartFailures,
@@ -397,7 +427,7 @@ public sealed class ModelOrchestrator : IDisposable
 
     private DateTimeOffset? GetNextRestartAttemptAtUtcLocked()
     {
-        if (_desiredModel is null || _currentProcess is not null || _lastRestartAttemptAtUtc is null)
+        if (_desiredModel is null || _currentLaunch is not null || _lastRestartAttemptAtUtc is null)
             return null;
 
         if (_consecutiveRestartFailures <= 0)
@@ -429,7 +459,7 @@ public sealed class ModelOrchestrator : IDisposable
     public void Dispose()
     {
         _lock.Dispose();
-        _currentProcess?.Dispose();
+        _currentLaunch?.Dispose();
     }
 }
 
