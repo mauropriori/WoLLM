@@ -14,7 +14,7 @@ Safe path for users:
 1. Download the official `wollm-<version>-win-x64.zip`.
 2. Verify `wollm-<version>-win-x64.zip.sha256`.
 3. Extract the archive.
-4. Run `install-windows-release.ps1` as Administrator from the extracted folder.
+4. Run `install-windows.ps1` as Administrator from the extracted folder.
 5. If SmartScreen appears, choose `Altre info` and then `Esegui comunque` only after confirming the asset and checksum match this release.
 
 ## Checksums

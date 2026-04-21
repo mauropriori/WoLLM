@@ -2,6 +2,8 @@
 bin/
 obj/
 publish/
+out/
+dist/
 
 ## Visual Studio
 .vs/

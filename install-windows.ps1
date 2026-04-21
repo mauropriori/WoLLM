@@ -1,26 +1,30 @@
 #Requires -Version 5.1
 <#
 .SYNOPSIS
-    Registers WoLLM to start at system boot via Windows Task Scheduler.
+    Installs WoLLM into a stable folder and registers it to start at system boot.
 
 .DESCRIPTION
-    Does NOT install as a Windows Service — Task Scheduler with RunLevel Limited
-    keeps WoLLM in the user session, which is required for GPU driver access,
-    CUDA contexts, and conda/virtualenv environments.
+    Copies the extracted GitHub Release contents into a stable installation
+    directory, attempts to remove the Internet download mark from the files,
+    and then registers WoLLM in Task Scheduler.
 
-.PARAMETER WollmExe
-    Path to wollm.exe. Defaults to wollm.exe in the same directory as this script.
+.PARAMETER SourceDir
+    Folder containing the extracted GitHub Release files. Defaults to the script directory.
+
+.PARAMETER InstallDir
+    Target folder for the WoLLM installation. Defaults to Program Files\WoLLM.
 
 .PARAMETER TaskName
     Task Scheduler task name. Defaults to "WoLLM_Autostart".
 
 .EXAMPLE
     .\install-windows.ps1
-    .\install-windows.ps1 -WollmExe "D:\AI\wollm.exe" -TaskName "MyWoLLM"
+    .\install-windows.ps1 -InstallDir "D:\Apps\WoLLM" -TaskName "MyWoLLM"
 #>
 param(
-    [string]$WollmExe  = (Join-Path $PSScriptRoot "wollm.exe"),
-    [string]$TaskName  = "WoLLM_Autostart"
+    [string]$SourceDir = $PSScriptRoot,
+    [string]$InstallDir = (Join-Path ${env:ProgramFiles} "WoLLM"),
+    [string]$TaskName = "WoLLM_Autostart"
 )
 
 $currentIdentity = [Security.Principal.WindowsIdentity]::GetCurrent()
@@ -30,21 +34,47 @@ if (-not $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administra
     exit 1
 }
 
-if (-not (Test-Path $WollmExe)) {
-    Write-Error "wollm.exe not found at: $WollmExe"
+if (-not (Test-Path -LiteralPath $SourceDir)) {
+    Write-Error "Source directory not found at: $SourceDir"
     exit 1
 }
 
-$resolvedExe = (Resolve-Path $WollmExe).Path
-$exeDir = Split-Path -Parent $resolvedExe
+$resolvedSourceDir = (Resolve-Path -LiteralPath $SourceDir).Path
+$sourceExe = Join-Path $resolvedSourceDir "wollm.exe"
+if (-not (Test-Path -LiteralPath $sourceExe)) {
+    Write-Error "wollm.exe not found in source directory: $resolvedSourceDir"
+    exit 1
+}
+
+$resolvedInstallDir = [System.IO.Path]::GetFullPath($InstallDir)
+New-Item -ItemType Directory -Path $resolvedInstallDir -Force | Out-Null
+
+Get-ChildItem -LiteralPath $resolvedSourceDir -Recurse -File -Force | ForEach-Object {
+    Unblock-File -LiteralPath $_.FullName -ErrorAction SilentlyContinue
+}
+
+Get-ChildItem -LiteralPath $resolvedSourceDir -Force | ForEach-Object {
+    $destination = Join-Path $resolvedInstallDir $_.Name
+    Copy-Item -LiteralPath $_.FullName -Destination $destination -Recurse -Force
+}
+
+Get-ChildItem -LiteralPath $resolvedInstallDir -Recurse -File -Force | ForEach-Object {
+    Unblock-File -LiteralPath $_.FullName -ErrorAction SilentlyContinue
+}
+
+$installedExe = Join-Path $resolvedInstallDir "wollm.exe"
+if (-not (Test-Path -LiteralPath $installedExe)) {
+    Write-Error "Installed wollm.exe not found at: $installedExe"
+    exit 1
+}
 
 $action = New-ScheduledTaskAction `
-    -Execute $resolvedExe `
-    -WorkingDirectory $exeDir
+    -Execute $installedExe `
+    -WorkingDirectory $resolvedInstallDir
 
 $trigger = New-ScheduledTaskTrigger -AtStartup
 
-$principal = New-ScheduledTaskPrincipal `
+$taskPrincipal = New-ScheduledTaskPrincipal `
     -UserId "SYSTEM" `
     -LogonType ServiceAccount `
     -RunLevel Highest
@@ -58,14 +88,15 @@ $settings = New-ScheduledTaskSettingsSet `
     -DontStopIfGoingOnBatteries
 
 Register-ScheduledTask `
-    -TaskName  $TaskName `
-    -Action    $action `
-    -Trigger   $trigger `
-    -Settings  $settings `
-    -Principal $principal `
+    -TaskName $TaskName `
+    -Action $action `
+    -Trigger $trigger `
+    -Settings $settings `
+    -Principal $taskPrincipal `
     -Description "Starts WoLLM automatically at system boot, without requiring user logon." `
     -Force | Out-Null
 
+Write-Host "WoLLM installed to: $resolvedInstallDir"
 Write-Host "Task '$TaskName' registered. WoLLM will start at next boot without requiring user logon."
 Write-Host "To start now: Start-ScheduledTask -TaskName '$TaskName'"
 Write-Host "To remove:    Unregister-ScheduledTask -TaskName '$TaskName' -Confirm:`$false"

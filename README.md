@@ -51,10 +51,10 @@ $actual = (Get-FileHash .\wollm-<version>-win-x64.zip -Algorithm SHA256).Hash.To
 $actual -eq $expected
 
 # Extract the release archive, open an elevated PowerShell in the extracted folder, then:
-.\install-windows-release.ps1
+.\install-windows.ps1
 ```
 
-`install-windows-release.ps1` copies the release files into `C:\Program Files\WoLLM`, tries to remove the Internet download mark from the extracted files, and registers a machine-level Task Scheduler entry that launches WoLLM at system boot. The task runs as `LocalSystem`.
+`install-windows.ps1` copies the release files into `C:\Program Files\WoLLM`, tries to remove the Internet download mark from the extracted files, and registers a machine-level Task Scheduler entry that launches WoLLM at system boot. The task runs as `LocalSystem`.
 
 Use local absolute paths for models and scripts on Windows. `LocalSystem` does not see user-mapped network drives or per-user profile state.
 
@@ -66,7 +66,7 @@ To proceed safely:
 
 1. Download only from the official GitHub Release page.
 2. Verify the SHA256 checksum published next to the archive.
-3. Extract the archive and run `install-windows-release.ps1` from an elevated PowerShell session.
+3. Extract the archive and run `install-windows.ps1` from an elevated PowerShell session.
 4. If SmartScreen appears, use `Altre info` and then `Esegui comunque` only after confirming you are using the official release asset.
 
 Code signing support is already prepared in the release workflow and can be enabled later by adding these GitHub secrets:
