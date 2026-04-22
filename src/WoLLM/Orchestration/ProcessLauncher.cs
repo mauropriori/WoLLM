@@ -5,13 +5,18 @@ using WoLLM.Logging;
 
 namespace WoLLM.Orchestration;
 
-public static class ProcessLauncher
+public interface IManagedProcessLauncher
+{
+    ManagedProcessLaunch Launch(ModelConfig model, ILogger logger);
+}
+
+public sealed class ProcessLauncher : IManagedProcessLauncher
 {
     /// <summary>
     /// Starts the model script through the platform shell with stdout/stderr redirected
     /// into dedicated log files managed by WoLLM.
     /// </summary>
-    public static ManagedProcessLaunch Launch(ModelConfig model, ILogger logger)
+    public ManagedProcessLaunch Launch(ModelConfig model, ILogger logger)
     {
         var resolvedScriptPath = ResolveScriptPath(model.ScriptPath);
         var psi = BuildStartInfo(resolvedScriptPath);
@@ -19,12 +24,17 @@ public static class ProcessLauncher
 
         process.Start();
 
-        var logSession = ManagedProcessLogSession.Start(model.Name, process);
-        var launch = new ManagedProcessLaunch(process, logSession, model.Name, resolvedScriptPath);
+        var launcherProcess = new SystemManagedProcessHandle(process);
+        var logSession = ManagedProcessLogSession.Start(
+            model.Name,
+            launcherProcess.Id,
+            launcherProcess.StandardOutputStream,
+            launcherProcess.StandardErrorStream);
+        var launch = new ManagedProcessLaunch(launcherProcess, logSession, model.Name, resolvedScriptPath);
 
         process.Exited += (_, _) =>
             logger.LogWarning(
-                "Script process exited (model: '{Model}', script: '{Script}', stdout: '{StdoutLog}', stderr: '{StderrLog}').",
+                "Launcher process exited (model: '{Model}', script: '{Script}', stdout: '{StdoutLog}', stderr: '{StderrLog}').",
                 model.Name,
                 resolvedScriptPath,
                 launch.LogPaths.StdoutPath,
@@ -32,7 +42,7 @@ public static class ProcessLauncher
 
         logger.LogInformation(
             "Launched PID {Pid} for model '{Model}' via '{Script}'. stdout: '{StdoutLog}', stderr: '{StderrLog}'.",
-            process.Id,
+            launcherProcess.Id,
             model.Name,
             resolvedScriptPath,
             launch.LogPaths.StdoutPath,
@@ -84,25 +94,74 @@ public static class ProcessLauncher
 public sealed class ManagedProcessLaunch : IDisposable
 {
     private readonly ManagedProcessLogSession _logSession;
+    private IManagedProcessHandle? _backendProcess;
 
     public ManagedProcessLaunch(
-        Process process,
+        IManagedProcessHandle launcherProcess,
         ManagedProcessLogSession logSession,
         string modelName,
         string scriptPath)
     {
-        Process = process;
+        LauncherProcess = launcherProcess;
         _logSession = logSession;
         ModelName = modelName;
         ScriptPath = scriptPath;
     }
 
-    public Process Process { get; }
+    public IManagedProcessHandle LauncherProcess { get; }
     public string ModelName { get; }
     public string ScriptPath { get; }
     public ProcessLogPaths LogPaths => _logSession.Paths;
+    public IManagedProcessHandle? BackendProcess => _backendProcess;
+    public DateTimeOffset? BackendProcessStartedAtUtc { get; private set; }
 
     public Task WaitForLogDrainAsync() => _logSession.Completion;
 
-    public void Dispose() => Process.Dispose();
+    public void TrackBackendProcess(IManagedProcessHandle backendProcess, DateTimeOffset? startedAtUtc)
+    {
+        if (backendProcess.Id == LauncherProcess.Id)
+        {
+            if (!ReferenceEquals(backendProcess, LauncherProcess))
+                backendProcess.Dispose();
+
+            ResetTrackedBackendProcess();
+            _backendProcess = LauncherProcess;
+            BackendProcessStartedAtUtc = startedAtUtc ?? LauncherProcess.StartTimeUtc;
+            return;
+        }
+
+        if (_backendProcess is not null &&
+            !ReferenceEquals(_backendProcess, LauncherProcess) &&
+            _backendProcess.Id != backendProcess.Id)
+        {
+            _backendProcess.Dispose();
+        }
+
+        if (_backendProcess is not null && _backendProcess.Id == backendProcess.Id)
+        {
+            if (!ReferenceEquals(_backendProcess, backendProcess))
+                backendProcess.Dispose();
+        }
+        else
+        {
+            _backendProcess = backendProcess;
+        }
+
+        BackendProcessStartedAtUtc = startedAtUtc ?? _backendProcess?.StartTimeUtc;
+    }
+
+    public void ResetTrackedBackendProcess()
+    {
+        if (_backendProcess is not null && !ReferenceEquals(_backendProcess, LauncherProcess))
+            _backendProcess.Dispose();
+
+        _backendProcess = null;
+        BackendProcessStartedAtUtc = null;
+    }
+
+    public void Dispose()
+    {
+        ResetTrackedBackendProcess();
+        LauncherProcess.Dispose();
+    }
 }

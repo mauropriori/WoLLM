@@ -62,10 +62,7 @@ public sealed class BackendActivityMonitor : BackgroundService
 
         while (!stoppingToken.IsCancellationRequested)
         {
-            var desiredModelName = _orchestrator.DesiredModelName;
-            var model = desiredModelName is null
-                ? null
-                : _config.Models.Find(m => m.Name.Equals(desiredModelName, StringComparison.OrdinalIgnoreCase));
+            var model = _orchestrator.CurrentModel;
 
             if (model is null)
             {

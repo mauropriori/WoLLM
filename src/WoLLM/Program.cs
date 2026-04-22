@@ -29,6 +29,8 @@ var config = ConfigLoader.Load(bootstrapLoggerFactory.CreateLogger(nameof(Config
 
 // Register services.
 builder.Services.AddSingleton(config);
+builder.Services.AddSingleton<IManagedProcessLauncher, ProcessLauncher>();
+builder.Services.AddSingleton<IBackendProcessResolver, BackendProcessResolver>();
 builder.Services.AddSingleton<ModelOrchestrator>();
 builder.Services.AddSingleton<ModelSupervisor>();
 builder.Services.AddSingleton<BackendActivityMonitor>();

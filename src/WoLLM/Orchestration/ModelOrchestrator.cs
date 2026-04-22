@@ -24,6 +24,8 @@ public sealed class ModelOrchestrator : IDisposable
     private readonly WollmConfig _config;
     private readonly ILogger<ModelOrchestrator> _logger;
     private readonly IHttpClientFactory _httpClientFactory;
+    private readonly IManagedProcessLauncher _processLauncher;
+    private readonly IBackendProcessResolver _backendProcessResolver;
     private readonly SemaphoreSlim _lock = new(1, 1);
 
     private ManagedProcessLaunch? _currentLaunch;
@@ -31,7 +33,6 @@ public sealed class ModelOrchestrator : IDisposable
     private ModelConfig? _desiredModel;
     private LoadState _lastLoadState = LoadState.None;
     private SupervisorState _supervisorState = SupervisorState.Idle;
-    private DateTimeOffset? _currentProcessStartedAtUtc;
     private DateTimeOffset? _lastUnexpectedExitAtUtc;
     private DateTimeOffset? _lastRestartAttemptAtUtc;
     private DateTimeOffset? _lastRestartSucceededAtUtc;
@@ -44,7 +45,7 @@ public sealed class ModelOrchestrator : IDisposable
     private int _consecutiveRestartFailures;
     private bool _isStoppingCurrentProcess;
 
-    /// <summary>Currently healthy model. May be read without the lock (atomic reference read on 64-bit CLR).</summary>
+    /// <summary>Currently supervised backend model. May be read without the lock (atomic reference read on 64-bit CLR).</summary>
     public ModelConfig? CurrentModel => _currentModel;
     public string? DesiredModelName => _desiredModel?.Name;
     public bool HasManagedModel => _desiredModel is not null;
@@ -53,11 +54,15 @@ public sealed class ModelOrchestrator : IDisposable
     public ModelOrchestrator(
         WollmConfig config,
         ILogger<ModelOrchestrator> logger,
-        IHttpClientFactory httpClientFactory)
+        IHttpClientFactory httpClientFactory,
+        IManagedProcessLauncher processLauncher,
+        IBackendProcessResolver backendProcessResolver)
     {
         _config = config;
         _logger = logger;
         _httpClientFactory = httpClientFactory;
+        _processLauncher = processLauncher;
+        _backendProcessResolver = backendProcessResolver;
     }
 
     /// <summary>
@@ -72,15 +77,15 @@ public sealed class ModelOrchestrator : IDisposable
         await _lock.WaitAsync(ct);
         try
         {
-            await ObserveExitedProcessLockedAsync();
+            await ObserveManagedProcessLockedAsync();
 
             var target = _config.Models.Find(
                 m => m.Name.Equals(modelName, StringComparison.OrdinalIgnoreCase))
                 ?? throw new InvalidOperationException($"Unknown model: '{modelName}'.");
 
             if (string.Equals(_desiredModel?.Name, target.Name, StringComparison.OrdinalIgnoreCase) &&
-                _currentLaunch?.Process is not null &&
-                !_currentLaunch.Process.HasExited &&
+                _currentLaunch?.BackendProcess is not null &&
+                !_currentLaunch.BackendProcess.HasExited &&
                 string.Equals(_currentModel?.Name, target.Name, StringComparison.OrdinalIgnoreCase))
             {
                 _lastLoadState = LoadState.Loaded;
@@ -150,13 +155,13 @@ public sealed class ModelOrchestrator : IDisposable
         await _lock.WaitAsync(ct);
         try
         {
-            await ObserveExitedProcessLockedAsync();
+            await ObserveManagedProcessLockedAsync();
 
             if (_desiredModel is null)
                 return;
 
-            if (_currentLaunch?.Process is not null &&
-                !_currentLaunch.Process.HasExited &&
+            if (_currentLaunch?.BackendProcess is not null &&
+                !_currentLaunch.BackendProcess.HasExited &&
                 string.Equals(_currentModel?.Name, _desiredModel.Name, StringComparison.OrdinalIgnoreCase))
             {
                 _supervisorState = SupervisorState.Running;
@@ -213,7 +218,7 @@ public sealed class ModelOrchestrator : IDisposable
         await _lock.WaitAsync(ct);
         try
         {
-            await ObserveExitedProcessLockedAsync();
+            await ObserveManagedProcessLockedAsync();
             return CreateStatusSnapshotLocked();
         }
         finally
@@ -224,17 +229,31 @@ public sealed class ModelOrchestrator : IDisposable
 
     private async Task StartModelLockedAsync(ModelConfig model, bool isRestart, CancellationToken ct)
     {
-        _currentLaunch = ProcessLauncher.Launch(model, _logger);
-        _currentProcessStartedAtUtc = DateTimeOffset.UtcNow;
+        _currentLaunch = _processLauncher.Launch(model, _logger);
         _lastStdoutLogPath = _currentLaunch.LogPaths.StdoutPath;
         _lastStderrLogPath = _currentLaunch.LogPaths.StderrPath;
 
         try
         {
             await WaitForHealthAsync(model, ct);
+
+            var resolution = ResolveTrackedBackendProcessLocked(model);
+            if (!resolution.IsTrackedProcess)
+            {
+                throw new InvalidOperationException(
+                    $"Model '{model.Name}' became healthy, but WoLLM could not verify the backend PID. {resolution.Reason}");
+            }
+
+            _currentLaunch.TrackBackendProcess(resolution.Process!, resolution.ProcessStartedAtUtc);
             _currentModel = model;
             _lastLoadState = LoadState.Loaded;
             _supervisorState = SupervisorState.Running;
+
+            _logger.LogInformation(
+                "Tracking backend PID {Pid} for model '{Model}'. {Reason}",
+                _currentLaunch.BackendProcess?.Id,
+                model.Name,
+                resolution.Reason);
 
             if (isRestart)
             {
@@ -270,26 +289,46 @@ public sealed class ModelOrchestrator : IDisposable
         if (_currentLaunch is null)
             return;
 
-        var process = _currentLaunch.Process;
+        var launch = _currentLaunch;
+        var launcherProcess = launch.LauncherProcess;
+        var backendProcess = launch.BackendProcess;
         _isStoppingCurrentProcess = true;
+
         try
         {
-            if (!process.HasExited)
+            if (!launcherProcess.HasExited)
             {
                 _logger.LogInformation(
-                    "Killing PID {Pid} (model '{Model}'). stdout: '{StdoutLog}', stderr: '{StderrLog}'.",
-                    process.Id,
+                    "Killing launcher PID {Pid} (model '{Model}'). stdout: '{StdoutLog}', stderr: '{StderrLog}'.",
+                    launcherProcess.Id,
                     _currentModel?.Name ?? _desiredModel?.Name,
                     _lastStdoutLogPath,
                     _lastStderrLogPath);
 
-                process.Kill(entireProcessTree: true);
-                await process.WaitForExitAsync();
+                launcherProcess.Kill(entireProcessTree: true);
+                await launcherProcess.WaitForExitAsync();
+            }
+
+            if (backendProcess is not null &&
+                backendProcess.Id != launcherProcess.Id &&
+                !backendProcess.HasExited)
+            {
+                _logger.LogInformation(
+                    "Killing backend PID {Pid} after launcher exit (model '{Model}').",
+                    backendProcess.Id,
+                    _currentModel?.Name ?? _desiredModel?.Name);
+
+                backendProcess.Kill(entireProcessTree: true);
+                await backendProcess.WaitForExitAsync();
             }
         }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, "Error while killing PID {Pid}.", process.Id);
+            _logger.LogWarning(
+                ex,
+                "Error while killing launcher PID {LauncherPid} / backend PID {BackendPid}.",
+                launcherProcess.Id,
+                backendProcess?.Id);
         }
         finally
         {
@@ -298,50 +337,103 @@ public sealed class ModelOrchestrator : IDisposable
         }
     }
 
-    private async Task ObserveExitedProcessLockedAsync()
+    private async Task ObserveManagedProcessLockedAsync()
     {
-        if (_currentLaunch is null || !_currentLaunch.Process.HasExited)
+        if (_currentLaunch is null)
             return;
 
-        var currentLaunch = _currentLaunch;
-        var process = currentLaunch.Process;
-        var modelName = _currentModel?.Name ?? _desiredModel?.Name;
-        int? exitCode = null;
+        if (_currentModel is null)
+        {
+            if (!_currentLaunch.LauncherProcess.HasExited)
+                return;
 
-        try
-        {
-            exitCode = process.ExitCode;
+            if (!_isStoppingCurrentProcess && _desiredModel is not null)
+            {
+                MarkUnexpectedExitLocked(
+                    _currentLaunch.LauncherProcess.TryGetExitCode(),
+                    $"Launcher PID {_currentLaunch.LauncherProcess.Id} exited before backend tracking was established.");
+            }
+
+            await DisposeCurrentLaunchLockedAsync();
+            return;
         }
-        catch (Exception ex)
+
+        var launch = _currentLaunch;
+        var model = _currentModel;
+        var resolution = ResolveTrackedBackendProcessLocked(model);
+
+        if (resolution.IsTrackedProcess)
         {
-            _logger.LogDebug(ex, "Unable to read exit code for PID {Pid}.", process.Id);
+            var previousPid = launch.BackendProcess?.Id;
+            launch.TrackBackendProcess(resolution.Process!, resolution.ProcessStartedAtUtc);
+
+            if (previousPid is null)
+            {
+                _logger.LogInformation(
+                    "Tracking backend PID {Pid} for model '{Model}'. {Reason}",
+                    launch.BackendProcess?.Id,
+                    model.Name,
+                    resolution.Reason);
+            }
+            else if (previousPid != launch.BackendProcess?.Id)
+            {
+                _logger.LogWarning(
+                    "Backend PID changed for model '{Model}' from {PreviousPid} to {NewPid}. {Reason}",
+                    model.Name,
+                    previousPid,
+                    launch.BackendProcess?.Id,
+                    resolution.Reason);
+            }
+
+            _supervisorState = SupervisorState.Running;
+            return;
         }
 
         if (!_isStoppingCurrentProcess && _desiredModel is not null)
         {
-            _lastUnexpectedExitAtUtc = DateTimeOffset.UtcNow;
-            _lastExitCode = exitCode;
-            _lastLoadState = LoadState.Failed;
-            _supervisorState = SupervisorState.Failed;
+            var exitCode = launch.BackendProcess?.TryGetExitCode() ?? launch.LauncherProcess.TryGetExitCode();
+            MarkUnexpectedExitLocked(exitCode, resolution.Reason);
 
             _logger.LogWarning(
-                "Managed process for model '{Model}' exited unexpectedly. PID {Pid}, exit code {ExitCode}, stdout: '{StdoutLog}', stderr: '{StderrLog}'.",
-                modelName,
-                process.Id,
-                exitCode,
-                currentLaunch.LogPaths.StdoutPath,
-                currentLaunch.LogPaths.StderrPath);
+                "Managed backend for model '{Model}' is unavailable. {Reason} Tracked backend PID: {BackendPid}; launcher PID: {LauncherPid}; stdout: '{StdoutLog}'; stderr: '{StderrLog}'.",
+                model.Name,
+                resolution.Reason,
+                launch.BackendProcess?.Id,
+                launch.LauncherProcess.Id,
+                launch.LogPaths.StdoutPath,
+                launch.LogPaths.StderrPath);
         }
 
-        await DisposeCurrentLaunchLockedAsync();
+        await StopCurrentProcessLockedAsync();
+    }
+
+    private void MarkUnexpectedExitLocked(int? exitCode, string reason)
+    {
+        _lastUnexpectedExitAtUtc = DateTimeOffset.UtcNow;
+        _lastExitCode = exitCode;
+        _lastLoadState = LoadState.Failed;
+        _supervisorState = SupervisorState.Failed;
         _currentModel = null;
+
+        _logger.LogWarning(
+            "Managed process for model '{Model}' became unavailable. Exit code {ExitCode}. {Reason}",
+            _desiredModel?.Name,
+            exitCode,
+            reason);
+    }
+
+    private BackendProcessResolution ResolveTrackedBackendProcessLocked(ModelConfig model)
+    {
+        return _currentLaunch is null
+            ? BackendProcessResolution.Missing($"Model '{model.Name}' has no active launcher process.")
+            : _backendProcessResolver.Resolve(model, _currentLaunch);
     }
 
     private async Task DisposeCurrentLaunchLockedAsync()
     {
         var currentLaunch = _currentLaunch;
         _currentLaunch = null;
-        _currentProcessStartedAtUtc = null;
+        _currentModel = null;
 
         if (currentLaunch is null)
             return;
@@ -354,8 +446,8 @@ public sealed class ModelOrchestrator : IDisposable
         {
             _logger.LogWarning(
                 ex,
-                "Error while finalizing process log capture for PID {Pid}.",
-                currentLaunch.Process.Id);
+                "Error while finalizing process log capture for launcher PID {Pid}.",
+                currentLaunch.LauncherProcess.Id);
         }
         finally
         {
@@ -377,7 +469,7 @@ public sealed class ModelOrchestrator : IDisposable
         while (DateTime.UtcNow < deadline)
         {
             ct.ThrowIfCancellationRequested();
-            await ObserveExitedProcessLockedAsync();
+            await ObserveManagedProcessLockedAsync();
 
             if (_currentLaunch is null)
             {
@@ -412,8 +504,10 @@ public sealed class ModelOrchestrator : IDisposable
             Supervisor: new SupervisorStatusSnapshot(
                 State: _supervisorState.ToString().ToLowerInvariant(),
                 DesiredModel: _desiredModel?.Name,
-                ProcessId: _currentLaunch?.Process is not null && !_currentLaunch.Process.HasExited ? _currentLaunch.Process.Id : null,
-                ProcessStartedAtUtc: _currentProcessStartedAtUtc,
+                ProcessId: _currentLaunch?.BackendProcess is not null && !_currentLaunch.BackendProcess.HasExited
+                    ? _currentLaunch.BackendProcess.Id
+                    : null,
+                ProcessStartedAtUtc: _currentLaunch?.BackendProcessStartedAtUtc,
                 RestartCount: _restartCount,
                 ConsecutiveRestartFailures: _consecutiveRestartFailures,
                 LastUnexpectedExitAtUtc: _lastUnexpectedExitAtUtc,

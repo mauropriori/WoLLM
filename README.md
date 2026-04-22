@@ -279,6 +279,8 @@ Returns the current orchestration state plus basic machine telemetry:
 
 `/health` intentionally stays lightweight. Detailed supervisor and backend activity information is exposed only by `/status`.
 
+`supervisor.processId` and `supervisor.processStartedAtUtc` refer to the real backend process that owns the model port, not the wrapper shell (`cmd.exe` / `bash`) used to launch the script.
+
 `currentModel` is set only after the target model passes its health check. If the managed process crashes later, `currentModel` becomes `null` as soon as WoLLM observes the exit, while `desiredModel` stays set so the supervisor can restart it automatically.
 
 Possible `loadStatus` values:
@@ -290,7 +292,7 @@ Possible `loadStatus` values:
 `supervisor.state` values:
 - `idle`: no model is currently supervised
 - `starting`: a manual `/load` is in progress
-- `running`: the desired model is healthy and supervised
+- `running`: the desired model's backend PID is currently tracked and supervised
 - `restarting`: WoLLM is attempting an automatic restart after an unexpected exit
 - `failed`: the supervised model is currently down; WoLLM will retry with backoff and expose the last failure metadata in `supervisor.*`
 

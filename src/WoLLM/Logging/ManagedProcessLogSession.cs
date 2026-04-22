@@ -1,5 +1,3 @@
-using System.Diagnostics;
-
 namespace WoLLM.Logging;
 
 public sealed class ManagedProcessLogSession
@@ -15,11 +13,15 @@ public sealed class ManagedProcessLogSession
     public ProcessLogPaths Paths { get; }
     public Task Completion => _completion;
 
-    public static ManagedProcessLogSession Start(string modelName, Process process)
+    public static ManagedProcessLogSession Start(
+        string modelName,
+        int processId,
+        Stream stdout,
+        Stream stderr)
     {
-        var paths = CreatePaths(modelName, process.Id);
-        var stdoutTask = PumpAsync(process.StandardOutput.BaseStream, paths.StdoutPath);
-        var stderrTask = PumpAsync(process.StandardError.BaseStream, paths.StderrPath);
+        var paths = CreatePaths(modelName, processId);
+        var stdoutTask = PumpAsync(stdout, paths.StdoutPath);
+        var stderrTask = PumpAsync(stderr, paths.StderrPath);
 
         return new ManagedProcessLogSession(paths, Task.WhenAll(stdoutTask, stderrTask));
     }
