@@ -12,6 +12,8 @@ Log.Logger = new LoggerConfiguration()
 
 var builder = WebApplication.CreateBuilder(args);
 builder.Services.AddSingleton<StartupLogStore>();
+builder.Logging.AddFilter("System.Net.Http.HttpClient.healthcheck", LogLevel.Warning);
+builder.Logging.AddFilter("System.Net.Http.HttpClient.backend-activity", LogLevel.Warning);
 
 builder.Host.UseSerilog((_, services, logConfig) =>
     logConfig
@@ -116,12 +118,13 @@ app.MapPost("/set", (int? idleTimeoutMinutes, bool? shutdown_on_idle, bool? unlo
 });
 
 // POST /load/{modelName}
-app.MapPost("/load/{modelName}", async (string modelName, CancellationToken ct) =>
+// Startup continues even if the calling client disconnects or times out.
+app.MapPost("/load/{modelName}", async (string modelName) =>
 {
     watchdog.RecordActivity();
     try
     {
-        await orchestrator.SwitchAsync(modelName, ct);
+        await orchestrator.SwitchAsync(modelName, app.Lifetime.ApplicationStopping);
         return Results.Ok(new { status = "loaded", model = modelName });
     }
     catch (KeyNotFoundException ex)
@@ -141,6 +144,13 @@ app.MapPost("/load/{modelName}", async (string modelName, CancellationToken ct) 
             title:      "Model startup timed out",
             detail:     ex.Message,
             statusCode: StatusCodes.Status504GatewayTimeout);
+    }
+    catch (OperationCanceledException)
+    {
+        return Results.Problem(
+            title: "Model startup canceled",
+            detail: "Model startup was canceled because WoLLM is shutting down.",
+            statusCode: StatusCodes.Status503ServiceUnavailable);
     }
 });
 
