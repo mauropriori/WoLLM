@@ -1,6 +1,6 @@
 # WoLLM
 
-**WoLLM** is a lightweight AI model orchestrator for Windows and Linux. It manages the lifecycle of local LLMs and image generation models via a simple REST API Ã¢â‚¬â€ loading models on demand, unloading them when idle, and optionally shutting down the system after a period of inactivity.
+**WoLLM** is a lightweight AI model orchestrator for Windows and Linux. It manages the lifecycle of local LLMs and image generation models via a simple REST API - loading models on demand, unloading them when idle, and optionally shutting down the system after a period of inactivity.
 
 Built with **.NET 10** and **ASP.NET Core**, it runs as a background service (Windows Task Scheduler / Linux systemd) and acts as a transparent proxy coordinator between your client applications and the underlying model servers.
 
@@ -8,21 +8,21 @@ Built with **.NET 10** and **ASP.NET Core**, it runs as a background service (Wi
 
 ## Features
 
-- **On-demand model switching** Ã¢â‚¬â€ load any configured model with a single HTTP call; the previous model is automatically killed first
-- **Idle watchdog** Ã¢â‚¬â€ automatically unloads the active model after a configurable period of inactivity
-- **Auto system shutdown** Ã¢â‚¬â€ optionally shuts down the machine after the idle timeout (useful for unattended inference rigs)
-- **Health-check polling** Ã¢â‚¬â€ waits for the model server to become healthy before reporting success, with a configurable timeout
-- **Process supervision** Ã¢â‚¬â€ detects unexpected model exits, keeps the desired model under supervision, and restarts it automatically with restart telemetry exposed by the API
-- **Optional API key auth** Ã¢â‚¬â€ protect the API with a shared secret; leave empty for open/local access
-- **Cross-platform** Ã¢â‚¬â€ full support for Windows (Task Scheduler, `.bat` scripts) and Linux (systemd, `.sh` scripts)
-- **GPU/CUDA friendly** Ã¢â‚¬â€ launches scripts via shell so conda environments, CUDA drivers, and venvs are inherited correctly
-- **Zero dependencies at runtime** Ã¢â‚¬â€ single self-contained executable, no .NET installation required on the target machine
+- **On-demand model switching** - load any configured model with a single HTTP call; the previous model is automatically killed first
+- **Idle watchdog** - automatically unloads the active model after a configurable period of inactivity
+- **Auto system shutdown** - optionally shuts down the machine after the idle timeout (useful for unattended inference rigs)
+- **Health-check polling** - waits for the model server to become healthy before reporting success, with a configurable timeout
+- **Process supervision** - detects unexpected model exits, keeps the desired model under supervision, and restarts it automatically with restart telemetry exposed by the API
+- **Optional API key auth** - protect the API with a shared secret; leave empty for open/local access
+- **Cross-platform** - full support for Windows (Task Scheduler, `.bat` scripts) and Linux (systemd, `.sh` scripts)
+- **GPU/CUDA friendly** - launches scripts via shell so conda environments, CUDA drivers, and venvs are inherited correctly
+- **Zero dependencies at runtime** - single self-contained executable, no .NET installation required on the target machine
 
 ---
 
 ## Requirements
 
-- [.NET 10 SDK](https://dotnet.microsoft.com/download) *(build only Ã¢â‚¬â€ the published binary is self-contained)*
+- [.NET 10 SDK](https://dotnet.microsoft.com/download) *(build only - the published binary is self-contained)*
 - A supported model backend, e.g.:
   - [llama-server](https://github.com/ggerganov/llama.cpp) for GGUF LLMs
   - [ComfyUI](https://github.com/comfyanonymous/ComfyUI) for image generation
@@ -42,7 +42,7 @@ Suggested asset names:
 
 Download only from the official GitHub Releases page for this repository. Avoid repackaged mirrors or third-party archives so you can verify the published checksums and keep a single trusted distribution channel.
 
-### Windows Ã¢â‚¬â€ Task Scheduler
+### Windows - Task Scheduler
 
 ```powershell
 # Optional but recommended: verify the checksum first
@@ -75,7 +75,7 @@ Code signing support is already prepared in the release workflow and can be enab
 - `WOLLM_WINDOWS_SIGNING_CERT_PASSWORD`
 - `WOLLM_WINDOWS_SIGNING_CERT_THUMBPRINT` or `WOLLM_WINDOWS_SIGNING_CERT_SUBJECT`
 
-### Linux Ã¢â‚¬â€ systemd user service
+### Linux - systemd user service
 
 ```bash
 # Optional but recommended: verify the checksum first
@@ -135,14 +135,14 @@ Copy `wollm.example.json` to `wollm.json` in the same directory as the executabl
 | `shutdownOnIdle` | `false` | If `true`, WoLLM shuts down the machine when the idle timeout expires |
 | `unloadOnIdle` | `true` | If `true`, WoLLM unloads the active model when the idle timeout expires |
 | `healthCheckTimeoutSeconds` | `120` | Max seconds to wait for a model to become healthy |
-| `models[].name` | Ã¢â‚¬â€ | Unique model identifier used in API calls |
-| `models[].type` | Ã¢â‚¬â€ | `llama` or `comfyui` |
-| `models[].port` | Ã¢â‚¬â€ | Port the model server will bind to |
-| `models[].scriptPath` | Ã¢â‚¬â€ | Path to the launch script (`.bat` on Windows, `.sh` on Linux) |
+| `models[].name` | - | Unique model identifier used in API calls |
+| `models[].type` | - | `llama` or `comfyui` |
+| `models[].port` | - | Port the model server will bind to |
+| `models[].scriptPath` | - | Path to the launch script (`.bat` on Windows, `.sh` on Linux) |
 
 ---
 
-## Security Ã¢â‚¬â€ API Key
+## Security - API Key
 
 Additional per-model activity detection settings:
 
@@ -166,7 +166,7 @@ Every request must then include the key in the `X-Api-Key` header. Requests with
 { "error": "Unauthorized: invalid or missing API key." }
 ```
 
-**Generating a key** Ã¢â‚¬â€ use any online generator, for example:
+**Generating a key** - use any online generator, for example:
 - https://www.uuidgenerator.net/
 - https://generate-random.org/api-key-generator
 
@@ -178,7 +178,7 @@ Copy the generated value into `wollm.json` on the server, and pass the same valu
 
 Each model needs a launch script that starts its server on the configured port. See [`scripts/examples/`](scripts/examples/) for templates.
 
-**Windows Ã¢â‚¬â€ LLM (llama-server)**
+**Windows - LLM (llama-server)**
 ```bat
 @echo off
 set MODEL_PATH=C:\Models\mistral-7b-instruct-v0.2.Q4_K_M.gguf
@@ -187,7 +187,7 @@ set LLAMA_SERVER=C:\llama.cpp\llama-server.exe
 "%LLAMA_SERVER%" --model "%MODEL_PATH%" --port 8081 --host 127.0.0.1 --n-gpu-layers 99 --ctx-size 4096
 ```
 
-**Windows Ã¢â‚¬â€ Image generation (ComfyUI)**
+**Windows - Image generation (ComfyUI)**
 ```bat
 @echo off
 set COMFYUI_PATH=C:\ComfyUI
@@ -399,11 +399,11 @@ curl -H "X-Api-Key: your-secret-key-here" -X POST "http://localhost:8080/shutdow
      :8081                                :8188
 ```
 
-- **ModelOrchestrator** — thread-safe lifecycle state holder; tracks desired model, healthy model, and managed process state
-- **ModelSupervisor** — background service that detects unexpected exits and restarts the supervised backend with backoff
-- **BackendActivityMonitor** — background service that polls backend runtime endpoints such as `/slots`, `/queue`, and `/history` to infer real usage and extend the idle timer conservatively
-- **IdleWatchdog** — background service that tracks the last activity timestamp and triggers unload (and optionally system shutdown) after the configured timeout
-- **ProcessLauncher** — cross-platform process spawner; preserves shell environment for GPU/CUDA/venv access
+- **ModelOrchestrator** - thread-safe lifecycle state holder; tracks desired model, healthy model, and managed process state
+- **ModelSupervisor** - background service that detects unexpected exits and restarts the supervised backend with backoff
+- **BackendActivityMonitor** - background service that polls backend runtime endpoints such as `/slots`, `/queue`, and `/history` to infer real usage and extend the idle timer conservatively
+- **IdleWatchdog** - background service that tracks the last activity timestamp and triggers unload (and optionally system shutdown) after the configured timeout
+- **ProcessLauncher** - cross-platform process spawner; preserves shell environment for GPU/CUDA/venv access
 
 ---
 ## Build from Source
