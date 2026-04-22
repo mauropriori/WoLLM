@@ -70,7 +70,7 @@ public sealed class ModelOrchestrator : IDisposable
     /// Kills the current model first if different.
     /// Blocks until the new model's health endpoint responds 200 or timeout elapses.
     /// </summary>
-    /// <exception cref="InvalidOperationException">Unknown model name.</exception>
+    /// <exception cref="KeyNotFoundException">Unknown model name.</exception>
     /// <exception cref="TimeoutException">Health check timed out; process has been killed.</exception>
     public async Task SwitchAsync(string modelName, CancellationToken ct = default)
     {
@@ -81,7 +81,7 @@ public sealed class ModelOrchestrator : IDisposable
 
             var target = _config.Models.Find(
                 m => m.Name.Equals(modelName, StringComparison.OrdinalIgnoreCase))
-                ?? throw new InvalidOperationException($"Unknown model: '{modelName}'.");
+                ?? throw new KeyNotFoundException($"Unknown model: '{modelName}'.");
 
             if (string.Equals(_desiredModel?.Name, target.Name, StringComparison.OrdinalIgnoreCase) &&
                 _currentLaunch?.BackendProcess is not null &&
@@ -486,6 +486,17 @@ public sealed class ModelOrchestrator : IDisposable
             catch (HttpRequestException)
             {
                 // Process not ready yet; keep polling.
+            }
+            catch (OperationCanceledException) when (!ct.IsCancellationRequested)
+            {
+                // HttpClient per-request timeout elapsed; verify the process is still alive and keep polling.
+                await ObserveManagedProcessLockedAsync();
+
+                if (_currentLaunch is null)
+                {
+                    throw new InvalidOperationException(
+                        $"Model '{model.Name}' terminated before becoming healthy. See stderr log at '{_lastStderrLogPath}'.");
+                }
             }
 
             await Task.Delay(TimeSpan.FromSeconds(1), ct);

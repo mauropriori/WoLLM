@@ -124,9 +124,16 @@ app.MapPost("/load/{modelName}", async (string modelName, CancellationToken ct) 
         await orchestrator.SwitchAsync(modelName, ct);
         return Results.Ok(new { status = "loaded", model = modelName });
     }
-    catch (InvalidOperationException ex)
+    catch (KeyNotFoundException ex)
     {
         return Results.NotFound(new { error = ex.Message });
+    }
+    catch (InvalidOperationException ex)
+    {
+        return Results.Problem(
+            title: "Model startup failed",
+            detail: ex.Message,
+            statusCode: StatusCodes.Status502BadGateway);
     }
     catch (TimeoutException ex)
     {
